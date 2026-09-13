@@ -1,0 +1,35 @@
+dataset:
+  name: causal_hf
+  init_params:
+    hf_location: namesarnav/counterbench
+    keep_labels: [Yes, No]
+
+  run_params: {}
+
+method:
+  name: llama-3.1-openrouter-few-shot-causal
+  init_params:
+    api_key_env: OPENROUTER_API_KEY
+    model: mistralai/ministral-3b-2512
+  run_params:
+    reasoning_type: inductive+deductive+abductive
+    sleep_ms: 500
+    retries: 3
+    timeout_sec: 60
+    show_progress: true
+    max_docs: 400
+    k: 5
+    example_selector: random
+    print_prompt_once: false
+    model_output_path: runs/causal_ministral3b_counterbench/causal_ministral3b_inductive+deductive+abductive_counterbench.jsonl
+    seed: 42
+    split: test
+    per_label_k: 3
+
+
+evaluators:
+  - name: causal_classification
+    init_params:
+      case_insensitive: true
+      strip: true
+    run_params: {}

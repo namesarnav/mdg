@@ -1,0 +1,30 @@
+dataset:
+  name: timex_hf
+  init_params:
+    hf_location: mdg-nlp/timex-compositional-sentence
+  run_params: {}
+method:
+  name: llama-3.1-openrouter-few-shot-compositional
+  init_params:
+    api_key_env: OPENROUTER_API_KEY_3
+    model: mistralai/ministral-8b-2512
+  run_params:
+    reasoning_type: inductive
+    sleep_ms: 500
+    retries: 3
+    timeout_sec: 60
+    show_progress: true
+    max_docs: 400
+    k: 3
+    example_selector: random
+    print_prompt_once: false
+    model_output_path: runs/timex_mistral8b_compositional_output_3/timex_mistral8b_inductive_compositional.jsonl
+    seed: 42
+    split: test
+    per_label_k: 3
+evaluators:
+- name: compositional_expression_partial
+  init_params:
+    case_insensitive: true
+    strip: true
+  run_params: {}

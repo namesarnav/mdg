@@ -1,0 +1,33 @@
+# Causal relation classification — INDUCTIVE reasoning
+# Dataset: namesarnav/bbh-causal-understanding
+# Method:  openrouter-causal
+
+dataset:
+  name: causal_hf
+  init_params:
+    hf_location: namesarnav/bbh-causal-understanding
+  run_params: {}
+
+method:
+  name: openrouter-causal
+  init_params:
+    api_key_env: OPENROUTER_API_KEY
+    model: mistralai/ministral-8b-2512
+  run_params:
+    reasoning_type: inductive
+    temperature: 0.0
+    per_label_k: 3                    # 3 examples per label (balanced)
+    k: 6                              # fallback total cap
+    seed: 42
+    max_docs: 25
+    sleep_ms: 500
+    retries: 3
+    timeout_sec: 60
+    show_progress: true
+    split: test
+    model_output_path: runs/bbh_understanding/inductive/output.jsonl
+
+evaluators:
+  - name: causal_classification
+    init_params: {}
+    run_params: {}

@@ -1,0 +1,13 @@
+Consider the following anchor time expression and duration expression:
+anchor_timex = "{{ anchor_timex }}"
+duration_ex = "{{ duration }}"
+
+The anchor time expression is in an ISO 8601 format. Determine the ISO 8601 timestamp format (e.g., "2023-10-01T12:00:00Z") of the start and the end of the duration expression based on the anchor time expression. For example, if the anchor time is "2023-10-01T12:00:00Z" and the expression is "for a week", the duration_start is "2023-10-01T12:00:00Z" and the duration_end is "2023-10-08T12:00:00Z". You should return a json object with the following structure:
+
+{
+  "duration_start": ISO 8601 timestamp format (e.g., "2023-10-01T12:00:00Z")
+  "duration_end":  ISO 8601 timestamp format (e.g., "2023-12-01T12:00:00Z")
+}
+
+return only the json object without any additional text or explanation. Ensure that the time expression is in a format that can be parsed into a ISO 8601 timestamp.
+Provide your answer below:

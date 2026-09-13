@@ -1,0 +1,36 @@
+# Causal relation classification — INDUCTIVE reasoning
+# Dataset: namesarnav/ac-reason
+# Method:  openrouter-causal
+
+dataset:
+  name: causal_hf
+  init_params:
+    hf_location: namesarnav/ac-reason
+  run_params: {}
+
+method:
+  name: openrouter-causal
+  init_params:
+    api_key_env: OPENROUTER_API_KEY
+    model: mistralai/ministral-8b-2512
+  run_params:
+    reasoning_type: inductive
+    sleep_ms: 500
+    retries: 3
+    timeout_sec: 60
+    show_progress: true
+    max_docs: 1
+    k: 3
+    example_selector: random
+    print_prompt_once: true
+    # model_output_path: runs/timex_mistral8b_compositional_output_3/timex_mistral8b_inductive_compositional.jsonl
+    seed: 42
+    split: test
+    per_label_k: 3
+
+
+
+evaluators:
+  - name: causal_classification
+    init_params: {}
+    run_params: {}

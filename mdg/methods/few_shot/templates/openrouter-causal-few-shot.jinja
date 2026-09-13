@@ -1,0 +1,9 @@
+{% for ex in examples -%}
+Example {{ loop.index }}:
+Input:
+{{ ex.text }}
+
+Label:
+{{ ex.label }}
+
+{% endfor -%}

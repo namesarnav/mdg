@@ -1,0 +1,16 @@
+Annotated Examples:
+
+{% for ex in examples -%}
+Example {{ loop.index }}:
+Input:
+{{ ex.text }}
+
+Output:
+{{ ex.spans_json }}
+
+{% endfor -%}
+
+Now extract all explicit event expressions from the next input.
+
+Input:
+{{ query_text }}

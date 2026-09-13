@@ -1,0 +1,15 @@
+You are given annotated examples and a new input.
+{% for ex in examples %}
+Example {{ loop.index }}:
+Text:
+{{ ex.text }}
+
+Gold expressions (time + event) as JSON array:
+{{ ex.spans_json }}
+
+{% endfor %}
+
+Now extract BOTH time expressions and event expressions from the next input.
+Return ONLY a valid JSON list of dictionaries.
+
+{{ query_text }}

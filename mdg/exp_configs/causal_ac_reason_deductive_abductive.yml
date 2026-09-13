@@ -1,0 +1,32 @@
+# Causal relation classification — DEDUCTIVE+ABDUCTIVE reasoning
+# Dataset: namesarnav/ac-reason
+# Note: abductive output_kind=list_dicts — model returns JSON with reasoning_steps.
+# Method:  openrouter-causal
+
+dataset:
+  name: causal_hf
+  init_params:
+    hf_location: namesarnav/ac-reason
+  run_params: {}
+
+method:
+  name: openrouter-causal
+  init_params:
+    api_key_env: OPENROUTER_API_KEY
+    model: mistralai/ministral-8b-2512
+  run_params:
+    reasoning_type: deductive+abductive
+    temperature: 0.0
+    seed: 42
+    max_docs: 25
+    sleep_ms: 500
+    retries: 3
+    timeout_sec: 180
+    show_progress: true
+    split: test
+    model_output_path: runs/ac_reason/deductive_abductive/output.jsonl
+
+evaluators:
+  - name: causal_classification
+    init_params: {}
+    run_params: {}

@@ -1,0 +1,35 @@
+# Causal relation classification — DEDUCTIVE reasoning (zero-shot, no train data needed)
+# Dataset: namesarnav/counterbench  (binary: YES / NO)
+# Method:  openrouter-causal  (registered in methods/few_shot/openrouter_based.py)
+# Run:
+#   poetry run python -m mdg.experiment_runner \
+#     --config mdg/exp_configs/causal_mock_deductive.yml \
+#     --output results/causal_deductive.json
+
+dataset:
+  name: causal_hf
+  init_params:
+    hf_location: namesarnav/counterbench
+  run_params: {}
+
+method:
+  name: openrouter-causal
+  init_params:
+    api_key_env: OPENROUTER_API_KEY
+    model: mistralai/ministral-8b-2512
+  run_params:
+    reasoning_type: deductive         
+    temperature: 0.0
+    max_docs: 25                     
+    sleep_ms: 300
+    retries: 3
+    timeout_sec: 60
+    show_progress: true
+    seed: 42
+    split: test
+    model_output_path: runs/causal_mock_deductive/output.jsonl
+
+evaluators:
+  - name: causal_classification
+    init_params: {}
+    run_params: {}

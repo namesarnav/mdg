@@ -72,6 +72,19 @@ FIELD_MAPS: Dict[str, Dict[str, Any]] = {
         label="gold",
         labels=["0", "1"],
     ),
+    # NatQuest / Quriosity: is_causal binary query classification.
+    "namesarnav/natquest": dict(
+        id="query_id",
+        text=lambda r: r.get("shortened_query") or r.get("original_query", ""),
+        label=lambda r: "YES" if r.get("is_causal") else "NO",
+        labels=["YES", "NO"],
+    ),
+    "namesarnav/Quriosity": dict(
+        id="query_id",
+        text=lambda r: r.get("shortened_query") or r.get("original_query", ""),
+        label=lambda r: "YES" if r.get("is_causal") else "NO",
+        labels=["YES", "NO"],
+    ),
     # CausalBench — three configs share the same label space (Yes/No).
     "namesarnav/causalbench:code": dict(
         id="Causal_Scenario_ID",

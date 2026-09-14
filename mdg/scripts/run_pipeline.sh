@@ -80,13 +80,18 @@ for entry in "${DATASETS[@]}"; do
 
     CKPT_DIR="mdg/finetune/checkpoints/${STEM}/${MODEL_ID}"
 
+    DATASET_STEM="${STEM#namesarnav_}"
+    HUB_MODEL_ID="namesarnav/${DATASET_STEM}-${MODEL_ID}"
+
     echo ""
-    echo "---- Fine-tuning $MODEL_ID on $DS ----"
+    echo "---- Fine-tuning $MODEL_ID on $DS → $HUB_MODEL_ID ----"
     poetry run python -m "mdg.finetune.${MODEL}" \
       --train  "$TRAIN_FILE" \
       --eval   "$TEST_FILE" \
       --labels "$LABELS" \
-      --output "mdg/finetune/checkpoints/${STEM}"
+      --output "mdg/finetune/checkpoints/${STEM}" \
+      --push-to-hub \
+      --hub-model-id "$HUB_MODEL_ID"
 
     echo ""
     echo "---- Attacking $MODEL_ID on $DS ----"

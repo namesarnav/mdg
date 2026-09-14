@@ -453,6 +453,7 @@ def run_pipeline(
 
     per_label = n // len(label_space)
     by_label: Dict[str, List[dict]] = defaultdict(list)
+    fields = schema["fields"]
 
     # Block duplicates against the seed split (train) so generated examples
     # don't copy source training examples verbatim.
@@ -462,54 +463,62 @@ def run_pipeline(
     total_returned = 0
     total_skipped_similarity = 0
     total_skipped_label = 0
+    total_saved = 0
 
     def _all_full() -> bool:
         return all(len(by_label[l]) >= per_label for l in label_space)
 
     print(f"\n[3] Generating {per_label} examples × {len(label_space)} labels = {per_label * len(label_space)} total")
     print(f"    (~{outputs_per_call} per API call)\n")
+    print(f"    Streaming saves to: {output_path}\n")
 
-    while not _all_full() and batch_num < max_batches:
-        batch_num += 1
-        label_counts_now = {l: len(by_label[l]) for l in label_space}
-        print(f"  [Batch {batch_num}]  per-label: {label_counts_now}")
+    with open(output_path, "w") as fout:
+        while not _all_full() and batch_num < max_batches:
+            batch_num += 1
+            label_counts_now = {l: len(by_label[l]) for l in label_space}
+            print(f"  [Batch {batch_num}]  per-label: {label_counts_now}  saved: {total_saved}")
 
-        # Draw fresh seeds_per_call examples per label from the pool each call
-        call_sample = {
-            label: random.sample(pool, seeds_per_call)
-            for label, pool in sampled.items()
-            if label in label_space
-        }
-        seed_list = format_seed_list(call_sample, schema)
+            # Draw fresh seeds_per_call examples per label from the pool each call
+            call_sample = {
+                label: random.sample(pool, seeds_per_call)
+                for label, pool in sampled.items()
+                if label in label_space
+            }
+            seed_list = format_seed_list(call_sample, schema)
 
-        raw_batch = _call(
-            api_key=api_key,
-            model=model,
-            system_prompt=system_prompt,
-            seed_list=seed_list,
-            fmt_example=schema["fmt_example"],
-            feedback=feedback,
-            print_prompt=(batch_num == 1),
-        )
-        print(f"    model returned {len(raw_batch)} examples")
+            raw_batch = _call(
+                api_key=api_key,
+                model=model,
+                system_prompt=system_prompt,
+                seed_list=seed_list,
+                fmt_example=schema["fmt_example"],
+                feedback=feedback,
+                print_prompt=(batch_num == 1),
+            )
+            print(f"    model returned {len(raw_batch)} examples")
 
-        valid, feedback, batch_counts = evaluate_batch(raw_batch, label_space, schema, seen_texts)
-        total_returned += batch_counts["total"]
-        total_skipped_similarity += batch_counts["skipped_similarity"]
-        total_skipped_label += batch_counts["skipped_label"]
+            valid, feedback, batch_counts = evaluate_batch(raw_batch, label_space, schema, seen_texts)
+            total_returned += batch_counts["total"]
+            total_skipped_similarity += batch_counts["skipped_similarity"]
+            total_skipped_label += batch_counts["skipped_label"]
 
-        print(f"    valid: {batch_counts['valid']}  |  skipped_similarity: {batch_counts['skipped_similarity']}  |  skipped_label: {batch_counts['skipped_label']}")
-        for fb in feedback:
-            print(f"    [EVAL] {fb}")
+            print(f"    valid: {batch_counts['valid']}  |  skipped_similarity: {batch_counts['skipped_similarity']}  |  skipped_label: {batch_counts['skipped_label']}")
+            for fb in feedback:
+                print(f"    [EVAL] {fb}")
 
-        accepted = 0
-        for rec in valid:
-            label = rec["_norm_label"]
-            if len(by_label[label]) < per_label:
-                by_label[label].append(rec)
-                accepted += 1
-        print(f"    accepted toward quota: {accepted}")
-        time.sleep(0.5)
+            accepted = 0
+            for rec in valid:
+                label = rec["_norm_label"]
+                if len(by_label[label]) < per_label:
+                    by_label[label].append(rec)
+                    # Strip private keys and write immediately
+                    clean = {f: rec[f] for f in fields if f in rec}
+                    fout.write(json.dumps(clean, ensure_ascii=False) + "\n")
+                    fout.flush()
+                    accepted += 1
+                    total_saved += 1
+            print(f"    accepted toward quota: {accepted}")
+            time.sleep(0.5)
 
     if batch_num >= max_batches and not _all_full():
         short = {l: per_label - len(by_label[l]) for l in label_space if len(by_label[l]) < per_label}
@@ -524,23 +533,14 @@ def run_pipeline(
     print(f"  Skipped (label):    {total_skipped_label}")
     print(f"  Task:               {task} ({'1 per label/call' if task == 1 else '5 per label/call'})")
 
-    # ── Assemble final balanced set — strip private keys before saving ──────
-    final: List[dict] = []
-    fields = schema["fields"]
-    for label in label_space:
-        for rec in by_label[label][:per_label]:
-            final.append({f: rec[f] for f in fields if f in rec})
-
-    print(f"\n[4] Final dataset: {len(final)} records")
-    dist: Dict[str, int] = defaultdict(int)
     label_field = schema["label_field"]
-    for r in final:
-        dist[r[label_field]] += 1
-    print(f"    Label distribution: {dict(dist)}")
+    dist: Dict[str, int] = defaultdict(int)
+    for recs in by_label.values():
+        for rec in recs:
+            dist[rec.get(label_field, "?")] += 1
 
-    with open(output_path, "w") as f:
-        for r in final:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    print(f"\n[4] Final dataset: {total_saved} records")
+    print(f"    Label distribution: {dict(dist)}")
     print(f"    Saved → {output_path}")
 
 

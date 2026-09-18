@@ -12,6 +12,18 @@
 
 set -uo pipefail   # no -e so failures don't stop the script
 
+# ─── Fix poetry Python env if it points to a stale/wrong interpreter ──────────
+echo "Checking poetry Python environment..."
+if ! poetry run python -c "import sys; print(sys.executable)" &>/dev/null; then
+  echo "[FIX] Poetry env is broken — recreating with system python3..."
+  poetry env remove --all 2>/dev/null || true
+  poetry env use "$(which python3)"
+  poetry install --no-interaction
+  echo "[FIX] Done. Continuing..."
+else
+  echo "Poetry env OK."
+fi
+
 DATA_DIR="mdg/finetune/data"
 CKPT_DIR="mdg/finetune/checkpoints"
 LOG_DIR="mdg/finetune/logs"

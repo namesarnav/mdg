@@ -211,6 +211,6 @@ def args_to_config(args, default_model: str) -> FinetuneConfig:
         learning_rate=args.lr,
         max_length=args.max_length,
         seed=args.seed,
- #       push_to_hub=args.push_to_hub,
-#        hub_model_id=hub_model_id,
+        push_to_hub=args.push_to_hub,
+        hub_model_id=hub_model_id,
     )

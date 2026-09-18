@@ -14,14 +14,15 @@ set -uo pipefail   # no -e so failures don't stop the script
 
 # ─── Fix poetry Python env if it points to a stale/wrong interpreter ──────────
 echo "Checking poetry Python environment..."
-if ! poetry run python -c "import sys; print(sys.executable)" &>/dev/null; then
-  echo "[FIX] Poetry env is broken — recreating with system python3..."
+POETRY_PYTHON_BIN=$(poetry env info -e 2>/dev/null || true)
+if [ -z "$POETRY_PYTHON_BIN" ] || [ ! -f "$POETRY_PYTHON_BIN" ]; then
+  echo "[FIX] Poetry Python binary not found ($POETRY_PYTHON_BIN) — recreating with system python3..."
   poetry env remove --all 2>/dev/null || true
   poetry env use "$(which python3)"
   poetry install --no-interaction
-  echo "[FIX] Done. Continuing..."
+  echo "[FIX] Done."
 else
-  echo "Poetry env OK."
+  echo "Poetry env OK: $POETRY_PYTHON_BIN"
 fi
 
 DATA_DIR="mdg/finetune/data"
@@ -71,8 +72,6 @@ run_finetune() {
     --eval         "$TEST_FILE" \
     --labels       "$LABELS" \
     --output       "${CKPT_DIR}/${STEM}" \
-    --push-to-hub \
-    --hub-model-id "$HUB_ID" \
     2>&1 | tee "$LOG_FILE"
 
   local EXIT_CODE="${PIPESTATUS[0]}"

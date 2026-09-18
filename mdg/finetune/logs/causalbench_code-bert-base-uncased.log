@@ -1,0 +1,6 @@
+/home/arnav1/.cache/pypoetry/virtualenvs/mdg-Qta6HcC4-py3.12/lib/python3.12/site-packages/torch/cuda/__init__.py:228: UserWarning: CUDA initialization: Unexpected error from cudaGetDeviceCount(). Did you run some cuda functions before calling NumCudaDevices() that might have already set an error? Error 804: forward compatibility was attempted on non supported HW (Triggered internally at /__w/pytorch/pytorch/c10/cuda/CUDAFunctions.cpp:119.)
+  return torch._C._cuda_getDeviceCount() > 0
+usage: bert.py [-h] --train TRAIN --eval EVAL [--labels LABELS]
+               [--output OUTPUT] [--epochs EPOCHS] [--batch BATCH] [--lr LR]
+               [--seed SEED]
+bert.py: error: unrecognized arguments: --push-to-hub --hub-model-id namesarnav/causalbench_code-bert-base-uncased

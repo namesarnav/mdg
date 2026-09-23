@@ -1,1 +1,2 @@
-/home/arnav1/.cache/pypoetry/virtualenvs/mdg-Qta6HcC4-py3.12/bin/python: No module named mdg.finetune.roberta
+
+Command '['/Users/arnav/.pyenv/shims/python', '-EsSc', 'import sys; print(sys.executable)']' returned non-zero exit status 127.

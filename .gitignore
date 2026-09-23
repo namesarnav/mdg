@@ -24,3 +24,6 @@ results/
 # Too large for GitHub (>100MB); parquet copies are in LFS
 data/level2/ac_reason/train.jsonl
 data/level2/corr2cause/train.jsonl
+
+
+mdg/finetune/checkpoints

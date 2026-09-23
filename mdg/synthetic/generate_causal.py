@@ -117,13 +117,9 @@ DATASET_SCHEMAS: Dict[str, Dict] = {
     },
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Prompt templates
-# ──────────────────────────────────────────────────────────────────────────────
-
 _SYSTEM_TMPL = """\
 You are a dataset generator for causal reasoning benchmarks. Multiple demonstration \
-examples are provided below for each target label. Treat these as few-shot demonstrations.
+examples are provided below for each target label. Treat these as few shot demonstrations.
 
 Instructions:
 1. Identify all distinct target labels in the demonstrations.
@@ -131,7 +127,8 @@ Instructions:
 3. Preserve the same field names, field structure, label format, and writing style.
 4. Do not paraphrase, copy, or make small lexical changes to the demonstrations.
 5. Create genuinely new situations while preserving the causal reasoning characteristics.
-{extra}6. Do not add fields, explanations, or formatting not present in the demonstrations.
+{extra}
+6. Do not add fields, explanations, or formatting not present in the demonstrations.
 7. Use only information in each generated example to determine its correct label.
 8. Return ONLY the generated examples as a JSON array. No explanation.
 
@@ -179,9 +176,9 @@ OUTPUT FORMAT (JSON array only, no extra text):
 Now generate the new examples:"""
 
 
-# ──────────────────────────────────────────────────────────────────────────────
+
 # Dataset loading — raw records in original field format
-# ──────────────────────────────────────────────────────────────────────────────
+
 
 def load_raw_records(dataset_name: str, schema: Dict) -> Tuple[List[dict], List[str]]:
     """
@@ -222,9 +219,7 @@ def load_raw_records(dataset_name: str, schema: Dict) -> Tuple[List[dict], List[
     return all_records, label_space
 
 
-# ──────────────────────────────────────────────────────────────────────────────
 # Stratified sampling
-# ──────────────────────────────────────────────────────────────────────────────
 
 def stratified_sample(
     records: List[dict],
@@ -264,9 +259,7 @@ def format_seed_list(sampled: Dict[str, List[dict]], schema: Dict) -> str:
     return "\n".join(lines)
 
 
-# ──────────────────────────────────────────────────────────────────────────────
 # Batch evaluation
-# ──────────────────────────────────────────────────────────────────────────────
 
 def _record_text(rec: dict, text_fields: List[str]) -> str:
     return " ".join(str(rec.get(f, "")) for f in text_fields)
@@ -322,6 +315,7 @@ def evaluate_batch(
         if is_dup:
             rep_issues.append(f"Example {i+1} (label={norm}) is a near-duplicate — skipped")
             continue
+        
 
         # Keep only the declared fields
         clean = {f: raw[f] for f in fields if f in raw}

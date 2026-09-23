@@ -1,49 +1,45 @@
-"""
-Fine-tune BERT (bert-base-uncased) for causal classification.
-
-Usage:
-    poetry run python -m mdg.finetune.bert \
-        --train mdg/synthetic/data/counterbench_task1.jsonl \
-        --eval  mdg/data/counterbench_eval.jsonl \
-        --labels YES,NO \
-        --output mdg/finetune/checkpoints
-        
-
-poetry run python -m mdg.models.qwen\
-  --train mdg/synthetic/data/counterbench_task1.jsonl \
-  --eval  mdg/synthetic/data/counterbench_task2.jsonl \
-  --labels YES,NO --model Qwen/Qwen3-0.6B \
-  --output mdg/finetune/checkpoints
-
-        
-"""
+"""Fine-tune bert-base-uncased for causal classification."""
 import argparse
+from pathlib import Path
 from mdg.models.base import FinetuneConfig, run
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--train",   required=True)
-    parser.add_argument("--eval",    required=True)
-    parser.add_argument("--labels",  default="YES,NO")
-    parser.add_argument("--output",  default="mdg/finetune/checkpoints")
-    parser.add_argument("--epochs",  type=int,   default=5)
-    parser.add_argument("--batch",   type=int,   default=16)
-    parser.add_argument("--lr",      type=float, default=2e-5)
-    parser.add_argument("--seed",    type=int,   default=42)
+    parser.add_argument("--train",         required=True)
+    parser.add_argument("--eval",          required=True)
+    parser.add_argument("--labels",        default="YES,NO")
+    parser.add_argument("--output",        default="mdg/finetune/checkpoints")
+    parser.add_argument("--epochs",        type=int,   default=5)
+    parser.add_argument("--batch",         type=int,   default=16)
+    parser.add_argument("--lr",            type=float, default=2e-5)
+    parser.add_argument("--seed",          type=int,   default=42)
+    parser.add_argument("--push-to-hub",   action="store_true")
+    parser.add_argument("--hub-model-id",  default=None)
+    parser.add_argument("--results-csv",   default=None)
+    parser.add_argument("--dataset-name",  default=None)
     args = parser.parse_args()
 
+    hub_model_id = args.hub_model_id
+    if args.push_to_hub and not hub_model_id:
+        dataset_stem = Path(args.train).stem.replace("__train", "").replace("namesarnav_", "")
+        hub_model_id = f"namesarnav/{dataset_stem}-bert-base-uncased"
+
     cfg = FinetuneConfig(
-        model_name  = "bert-base-uncased",
-        model_type  = "encoder",
-        train_path  = args.train,
-        eval_path   = args.eval,
-        label_space = args.labels.split(","),
-        output_dir  = args.output,
-        num_epochs  = args.epochs,
-        batch_size  = args.batch,
+        model_name    = "bert-base-uncased",
+        model_type    = "encoder",
+        train_path    = args.train,
+        eval_path     = args.eval,
+        label_space   = args.labels.split(","),
+        output_dir    = args.output,
+        num_epochs    = args.epochs,
+        batch_size    = args.batch,
         learning_rate = args.lr,
-        seed        = args.seed,
+        seed          = args.seed,
+        push_to_hub   = args.push_to_hub,
+        hub_model_id  = hub_model_id,
+        dataset_name  = args.dataset_name or "",
+        results_csv   = args.results_csv,
     )
     run(cfg)
 

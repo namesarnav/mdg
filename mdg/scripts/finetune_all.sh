@@ -1,22 +1,19 @@
 #!/usr/bin/env bash
-# Fine-tune BERT and RoBERTa on all 11 causal datasets.
-# Each run pushes the model to HuggingFace Hub.
-# Failures are logged and skipped — the script always continues to the next job.
+# Fine-tune BERT, RoBERTa, and T5 on all datasets.
+# - Skips any model/dataset pair whose checkpoint already exists
+# - Uses the LARGER split for training, smaller for eval
+# - Pushes each model to HuggingFace Hub
+# - Appends F1 + accuracy to mdg/finetune/train_results.csv
 #
-# Usage:
-#   bash mdg/scripts/finetune_bert_roberta.sh
-#
-# Prerequisites:
-#   huggingface-cli login   (or export HF_TOKEN=hf_...)
-#   poetry run python -m mdg.scripts.prepare_finetune_data ... (export datasets first)
+# Usage: bash mdg/scripts/finetune_all.sh
 
-set -uo pipefail   # no -e so failures don't stop the script
+set -uo pipefail
 
-# ─── Fix poetry Python env if it points to a stale/wrong interpreter ──────────
+# ─── Poetry env check ─────────────────────────────────────────────────────────
 echo "Checking poetry Python environment..."
 POETRY_PYTHON_BIN=$(poetry env info -e 2>/dev/null || true)
 if [ -z "$POETRY_PYTHON_BIN" ] || [ ! -f "$POETRY_PYTHON_BIN" ]; then
-  echo "[FIX] Poetry Python binary not found ($POETRY_PYTHON_BIN) — recreating with system python3..."
+  echo "[FIX] Recreating poetry env with system python3..."
   poetry env remove --all 2>/dev/null || true
   poetry env use "$(which python3)"
   poetry install --no-interaction
@@ -28,23 +25,25 @@ fi
 DATA_DIR="mdg/finetune/data"
 CKPT_DIR="mdg/finetune/checkpoints"
 LOG_DIR="mdg/finetune/logs"
+RESULTS_CSV="mdg/finetune/train_results.csv"
 mkdir -p "$LOG_DIR"
 
 FAILED=()
 PASSED=()
+SKIPPED=()
 
-# ─── Helper ────────────────────────────────────────────────────────────────────
+# ─── Helper ───────────────────────────────────────────────────────────────────
 run_finetune() {
-  local MODULE="$1"   # mdg.finetune.bert or mdg.finetune.roberta
-  local MODEL_ID="$2" # bert-base-uncased or roberta-base
+  local MODULE="$1"    # e.g. mdg.models.bert
+  local MODEL_ID="$2"  # e.g. bert-base-uncased
   local LABELS="$3"
-  local STEM="$4"     # safe filesystem stem, e.g. namesarnav_counterbench
+  local STEM="$4"      # e.g. namesarnav_counterbench
+
   local TRAIN_FILE="${DATA_DIR}/${STEM}__train.jsonl"
   local TEST_FILE="${DATA_DIR}/${STEM}__test.jsonl"
-
-  # Strip leading namesarnav_ for hub id
   local DATASET_STEM="${STEM#namesarnav_}"
   local HUB_ID="namesarnav/${DATASET_STEM}-${MODEL_ID}"
+  local CKPT="${CKPT_DIR}/${STEM}/${MODEL_ID}"
   local LOG_FILE="${LOG_DIR}/${DATASET_STEM}-${MODEL_ID}.log"
 
   echo ""
@@ -52,28 +51,50 @@ run_finetune() {
   echo "  MODEL  : $MODEL_ID"
   echo "  DATASET: $STEM"
   echo "  HUB    : $HUB_ID"
-  echo "  LOG    : $LOG_FILE"
   echo "────────────────────────────────────────────────────────"
 
-  # Check data files exist
+  # Skip if checkpoint already exists
+  if [ -d "$CKPT" ] && [ -f "${CKPT}/config.json" ]; then
+    echo "  [SKIP] Checkpoint already exists: $CKPT"
+    SKIPPED+=("${DATASET_STEM}/${MODEL_ID}")
+    return
+  fi
+
+  # Check data files
   if [ ! -f "$TRAIN_FILE" ]; then
-    echo "  [SKIP] Train file not found: $TRAIN_FILE"
+    echo "  [SKIP] Missing train file: $TRAIN_FILE"
     FAILED+=("${DATASET_STEM}/${MODEL_ID} — missing train file")
     return
   fi
   if [ ! -f "$TEST_FILE" ]; then
-    echo "  [SKIP] Test file not found: $TEST_FILE"
+    echo "  [SKIP] Missing test file: $TEST_FILE"
     FAILED+=("${DATASET_STEM}/${MODEL_ID} — missing test file")
     return
   fi
 
+  # Use the LARGER split for training, smaller for eval
+  TRAIN_COUNT=$(wc -l < "$TRAIN_FILE")
+  TEST_COUNT=$(wc -l < "$TEST_FILE")
+  if [ "$TRAIN_COUNT" -ge "$TEST_COUNT" ]; then
+    FINETUNE_ON="$TRAIN_FILE"
+    EVAL_ON="$TEST_FILE"
+  else
+    echo "  [INFO] Test split is larger — training on test, evaluating on train"
+    FINETUNE_ON="$TEST_FILE"
+    EVAL_ON="$TRAIN_FILE"
+  fi
+  echo "  Train: $TRAIN_COUNT lines → using $(basename $FINETUNE_ON) for training"
+  echo "  Eval : $TEST_COUNT  lines → using $(basename $EVAL_ON) for eval"
+
   poetry run python -m "$MODULE" \
-    --train        "$TRAIN_FILE" \
-    --eval         "$TEST_FILE" \
+    --train        "$FINETUNE_ON" \
+    --eval         "$EVAL_ON" \
     --labels       "$LABELS" \
     --output       "${CKPT_DIR}/${STEM}" \
     --push-to-hub \
     --hub-model-id "$HUB_ID" \
+    --results-csv  "$RESULTS_CSV" \
+    --dataset-name "$DATASET_STEM" \
     2>&1 | tee "$LOG_FILE"
 
   local EXIT_CODE="${PIPESTATUS[0]}"
@@ -86,7 +107,7 @@ run_finetune() {
   fi
 }
 
-# ─── Step 1: Export all datasets ───────────────────────────────────────────────
+# ─── Step 1: Export datasets ──────────────────────────────────────────────────
 echo "========================================================"
 echo "STEP 1 — Exporting datasets to JSONL"
 echo "========================================================"
@@ -105,16 +126,12 @@ poetry run python -m mdg.scripts.prepare_finetune_data \
     "namesarnav_counterbench:mdg/synthetic/data/counterbench_task2_v2.jsonl" \
     "namesarnav_ac-reason:mdg/synthetic/data/ac_reason_task2.jsonl" \
     "namesarnav_bbh-causal-judgement:mdg/synthetic/data/bbh_causal_judgement_task2.jsonl" \
-  --output-dir "$DATA_DIR"
+  --output-dir "$DATA_DIR" || echo "[WARN] Export had errors — continuing"
 
-if [ "${PIPESTATUS[0]}" -ne 0 ]; then
-  echo "[WARN] Data export had errors — some datasets may be missing. Continuing anyway."
-fi
-
-# ─── Step 2: BERT ──────────────────────────────────────────────────────────────
+# ─── Step 2: BERT ─────────────────────────────────────────────────────────────
 echo ""
 echo "========================================================"
-echo "STEP 2 — Fine-tuning BERT"
+echo "STEP 2 — Fine-tuning BERT (skips already-done)"
 echo "========================================================"
 
 run_finetune "mdg.models.bert" "bert-base-uncased" "YES,NO" "namesarnav_counterbench"
@@ -129,7 +146,7 @@ run_finetune "mdg.models.bert" "bert-base-uncased" "0,1"    "namesarnav_fincausa
 run_finetune "mdg.models.bert" "bert-base-uncased" "YES,NO" "namesarnav_natquest"
 run_finetune "mdg.models.bert" "bert-base-uncased" "YES,NO" "namesarnav_Quriosity"
 
-# ─── Step 3: RoBERTa ───────────────────────────────────────────────────────────
+# ─── Step 3: RoBERTa ──────────────────────────────────────────────────────────
 echo ""
 echo "========================================================"
 echo "STEP 3 — Fine-tuning RoBERTa"
@@ -147,22 +164,42 @@ run_finetune "mdg.models.roberta" "roberta-base" "0,1"    "namesarnav_fincausal-
 run_finetune "mdg.models.roberta" "roberta-base" "YES,NO" "namesarnav_natquest"
 run_finetune "mdg.models.roberta" "roberta-base" "YES,NO" "namesarnav_Quriosity"
 
-# ─── Summary ───────────────────────────────────────────────────────────────────
+# ─── Step 4: T5 ───────────────────────────────────────────────────────────────
+echo ""
+echo "========================================================"
+echo "STEP 4 — Fine-tuning T5"
+echo "========================================================"
+
+run_finetune "mdg.models.t5" "t5-base" "YES,NO" "namesarnav_counterbench"
+run_finetune "mdg.models.t5" "t5-base" "YES,NO" "namesarnav_ac-reason"
+run_finetune "mdg.models.t5" "t5-base" "YES,NO" "namesarnav_bbh-causal-judgement"
+run_finetune "mdg.models.t5" "t5-base" "YES,NO" "namesarnav_causalbench_code"
+run_finetune "mdg.models.t5" "t5-base" "YES,NO" "namesarnav_causalbench_math"
+run_finetune "mdg.models.t5" "t5-base" "YES,NO" "namesarnav_causalbench_text"
+run_finetune "mdg.models.t5" "t5-base" "0,1"    "namesarnav_corr2cause"
+run_finetune "mdg.models.t5" "t5-base" "0,1"    "namesarnav_e-care"
+run_finetune "mdg.models.t5" "t5-base" "0,1"    "namesarnav_fincausal-task1"
+run_finetune "mdg.models.t5" "t5-base" "YES,NO" "namesarnav_natquest"
+run_finetune "mdg.models.t5" "t5-base" "YES,NO" "namesarnav_Quriosity"
+
+# ─── Summary ──────────────────────────────────────────────────────────────────
 echo ""
 echo "========================================================"
 echo "  SUMMARY"
 echo "========================================================"
-echo "  Passed : ${#PASSED[@]}"
-for job in "${PASSED[@]}"; do echo "    ✓  $job"; done
-
-echo "  Failed : ${#FAILED[@]}"
-for job in "${FAILED[@]}"; do echo "    ✗  $job"; done
-
+echo "  Passed  : ${#PASSED[@]}"
+for job in "${PASSED[@]}";   do echo "    OK   $job"; done
+echo "  Skipped : ${#SKIPPED[@]}"
+for job in "${SKIPPED[@]}";  do echo "    SKIP $job"; done
+echo "  Failed  : ${#FAILED[@]}"
+for job in "${FAILED[@]}";   do echo "    FAIL $job"; done
 echo ""
+echo "  Train results CSV → $RESULTS_CSV"
+
 if [ "${#FAILED[@]}" -gt 0 ]; then
-  echo "Some jobs failed. Logs are in $LOG_DIR"
+  echo "Some jobs failed. Logs in $LOG_DIR"
   exit 1
 else
-  echo "All jobs completed successfully."
+  echo "All jobs done."
   exit 0
 fi

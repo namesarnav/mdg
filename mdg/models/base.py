@@ -18,10 +18,12 @@ poetry run python -m mdg.models.qwen \
 """
 from __future__ import annotations
 
+import csv
 import json
 import os
 import random
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -64,15 +66,22 @@ class FinetuneConfig:
     eval_batch_size:  int   = 32
     learning_rate:    float = 2e-5
     weight_decay:     float = 0.01
-    warmup_ratio:     float = 0.1
     max_length:       int   = 256
     seed:             int   = 42
     fp16:             bool  = torch.cuda.is_available()
     early_stopping_patience: int = 3
 
     # Encoder-decoder specific
-    # Label token ids are forced at generation time so output is always a valid label.
     max_target_length: int = 8
+
+    # Hub
+    push_to_hub:   bool            = False
+    hub_model_id:  Optional[str]   = None
+    hub_token:     Optional[str]   = None
+
+    # Results
+    dataset_name:  str             = ""
+    results_csv:   Optional[str]   = None
 
 
 # Data loading
@@ -183,6 +192,14 @@ def run(cfg: FinetuneConfig) -> None:
     id2label    = {i: l for l, i in label2id.items()}
     num_labels  = len(label_space)
 
+    hub_token = cfg.hub_token or os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+    hub_kwargs = dict(
+        push_to_hub=cfg.push_to_hub,
+        hub_model_id=cfg.hub_model_id if cfg.push_to_hub else None,
+        hub_token=hub_token if cfg.push_to_hub else None,
+        hub_strategy="end",
+    ) if cfg.push_to_hub and cfg.hub_model_id else {}
+
     print(f"\n{'='*60}")
     print(f"  model : {cfg.model_name}  ({cfg.model_type})")
     print(f"  labels: {label_space}")
@@ -220,8 +237,8 @@ def run(cfg: FinetuneConfig) -> None:
             per_device_eval_batch_size=cfg.eval_batch_size,
             learning_rate=cfg.learning_rate,
             weight_decay=cfg.weight_decay,
-            warmup_ratio=cfg.warmup_ratio,
-            evaluation_strategy="epoch",
+            warmup_steps=100,
+            eval_strategy="epoch",
             save_strategy="epoch",
             load_best_model_at_end=True,
             metric_for_best_model="macro_f1",
@@ -229,6 +246,7 @@ def run(cfg: FinetuneConfig) -> None:
             fp16=cfg.fp16,
             seed=cfg.seed,
             report_to="none",
+            **hub_kwargs,
         )
 
         trainer = Trainer(
@@ -236,7 +254,6 @@ def run(cfg: FinetuneConfig) -> None:
             args=training_args,
             train_dataset=train_tok,
             eval_dataset=eval_tok,
-            tokenizer=tokenizer,
             data_collator=DataCollatorWithPadding(tokenizer),
             compute_metrics=make_compute_metrics_encoder(label_space),
             callbacks=[EarlyStoppingCallback(early_stopping_patience=cfg.early_stopping_patience)],
@@ -261,8 +278,8 @@ def run(cfg: FinetuneConfig) -> None:
             per_device_eval_batch_size=cfg.eval_batch_size,
             learning_rate=cfg.learning_rate,
             weight_decay=cfg.weight_decay,
-            warmup_ratio=cfg.warmup_ratio,
-            evaluation_strategy="epoch",
+            warmup_steps=100,
+            eval_strategy="epoch",
             save_strategy="epoch",
             load_best_model_at_end=True,
             metric_for_best_model="macro_f1",
@@ -272,6 +289,7 @@ def run(cfg: FinetuneConfig) -> None:
             fp16=cfg.fp16,
             seed=cfg.seed,
             report_to="none",
+            **hub_kwargs,
         )
 
         trainer = Seq2SeqTrainer(
@@ -279,7 +297,6 @@ def run(cfg: FinetuneConfig) -> None:
             args=training_args,
             train_dataset=train_tok,
             eval_dataset=eval_tok,
-            tokenizer=tokenizer,
             compute_metrics=make_compute_metrics_seq2seq(tokenizer, label2id),
             callbacks=[EarlyStoppingCallback(early_stopping_patience=cfg.early_stopping_patience)],
         )
@@ -287,16 +304,16 @@ def run(cfg: FinetuneConfig) -> None:
     else:
         raise ValueError(f"Unknown model_type: {cfg.model_type!r}. Use 'encoder' or 'encoder-decoder'.")
 
-    # ── Train   
+    # ── Train
     print(f"\n[Training]")
     trainer.train()
 
-    # ── Evaluate  
+    # ── Evaluate
     print(f"\n[Evaluation]")
     results = trainer.evaluate()
     print(json.dumps(results, indent=2))
 
-    # ── Save 
+    # ── Save
     trainer.save_model(output_dir)
     tokenizer.save_pretrained(output_dir)
     print(f"\n  Saved → {output_dir}")
@@ -305,3 +322,31 @@ def run(cfg: FinetuneConfig) -> None:
     with open(results_path, "w") as f:
         json.dump(results, f, indent=2)
     print(f"  Results → {results_path}")
+
+    # ── Save CSV row
+    if cfg.results_csv:
+        dataset_name = cfg.dataset_name or Path(cfg.train_path).stem.replace("__train", "")
+        row = {
+            "model":      cfg.model_name,
+            "dataset":    dataset_name,
+            "num_train":  len(train_records),
+            "num_eval":   len(eval_records),
+            "macro_f1":   round(results.get("eval_macro_f1", 0), 4),
+            "accuracy":   round(results.get("eval_accuracy", 0), 4),
+            "timestamp":  datetime.now().isoformat(timespec="seconds"),
+        }
+        csv_path = Path(cfg.results_csv)
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        write_header = not csv_path.exists()
+        with open(csv_path, "a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=list(row.keys()))
+            if write_header:
+                writer.writeheader()
+            writer.writerow(row)
+        print(f"  CSV row → {cfg.results_csv}")
+
+    # ── Push to Hub
+    if cfg.push_to_hub and cfg.hub_model_id:
+        print(f"\n  Pushing to Hub: {cfg.hub_model_id} ...")
+        trainer.push_to_hub(commit_message="Fine-tuned on causal classification")
+        print(f"  Done → https://huggingface.co/{cfg.hub_model_id}")

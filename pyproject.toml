@@ -29,6 +29,7 @@ tqdm = "^4.66"
 scikit-learn = "^1.9.0"
 torch = "^2.14.0"
 transformers = "^5.17.0"
+accelerate = "^1.15.0"
 
 [tool.poetry.group.scripts.dependencies]
 # Only needed for the data-creation scripts

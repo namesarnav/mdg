@@ -36,9 +36,11 @@ Notes:
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 import traceback
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -286,6 +288,16 @@ def run_recipe(
 
 # Main pipeline
 
+def _append_csv(csv_path: Path, row: dict) -> None:
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not csv_path.exists()
+    with open(csv_path, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(row.keys()))
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
+
+
 def run(
     model_path: str,
     dataset_path: Path,
@@ -297,11 +309,15 @@ def run(
     query_budget: Optional[int],
     recipes_filter: Optional[List[str]],
     include_multilingual: bool,
+    results_csv: Optional[str] = None,
+    model_name_override: Optional[str] = None,
+    dataset_name_override: Optional[str] = None,
 ) -> None:
     import textattack
 
     stem = dataset_path.stem
-    model_name = Path(model_path).name
+    model_name = model_name_override or Path(model_path).name
+    dataset_label = dataset_name_override or stem
 
     text_fields_primary = text_field_override or [_detect_text_field(stem)]
     # For TEXT_FIELDS that have multiple fields, join them all
@@ -363,8 +379,23 @@ def run(
         )
         if summary:
             all_summaries.append(summary)
+            # Write CSV row immediately so partial runs are recoverable
+            if results_csv:
+                row = {
+                    "model":               model_name,
+                    "dataset":             dataset_label,
+                    "recipe":              summary["recipe"],
+                    "num_examples":        summary["num_examples"],
+                    "n_successful":        summary["n_successful"],
+                    "n_failed":            summary["n_failed"],
+                    "n_skipped":           summary["n_skipped"],
+                    "attack_success_rate": summary["attack_success_rate"],
+                    "avg_queries":         summary["avg_queries"],
+                    "timestamp":           datetime.now().isoformat(timespec="seconds"),
+                }
+                _append_csv(Path(results_csv), row)
 
-    #  Combined summary 
+    #  Combined summary
     combined_path = run_dir / "all_summaries.json"
     with open(combined_path, "w") as f:
         json.dump(all_summaries, f, indent=2)
@@ -407,6 +438,12 @@ def main() -> None:
                         help="Run only these recipes (by name). Default: all.")
     parser.add_argument("--include-multilingual", action="store_true",
                         help="Also run French/Spanish/Chinese recipes")
+    parser.add_argument("--results-csv", default=None,
+                        help="CSV file to append per-recipe results to")
+    parser.add_argument("--model-name",   default=None,
+                        help="Label for model column in CSV (default: checkpoint dir name)")
+    parser.add_argument("--dataset-name", default=None,
+                        help="Label for dataset column in CSV (default: file stem)")
     args = parser.parse_args()
 
     # Auto-detect label field from dataset filename if not provided
@@ -436,6 +473,9 @@ def main() -> None:
         query_budget=args.query_budget,
         recipes_filter=args.recipes,
         include_multilingual=args.include_multilingual,
+        results_csv=args.results_csv,
+        model_name_override=args.model_name,
+        dataset_name_override=args.dataset_name,
     )
 
 

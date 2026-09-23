@@ -88,18 +88,92 @@ def export_dataset(dataset_name: str, output_dir: Path, train_ratio: float = 0.7
         print(f"  [{split_name}]  {len(records)} records  labels={_label_dist(records)}  → {out_path.name}")
 
 
+def export_local_jsonl(stem: str, jsonl_path: str, output_dir: Path,
+                        train_ratio: float = 0.75, seed: int = 42) -> None:
+    """Split a local JSONL file into train/test and write to output_dir."""
+    import random
+    from collections import defaultdict
+
+    print(f"\n{'='*55}")
+    print(f"  {stem}  ←  {jsonl_path}")
+
+    records = []
+    with open(jsonl_path) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                records.append(json.loads(line))
+
+    # Normalise: map raw fields → text + label using FIELD_MAPS when available,
+    # falling back to common field name guesses.
+    from mdg.dataset_loaders.causal import FIELD_MAPS, _get, _norm_label
+    hf_name = stem.replace("namesarnav_", "namesarnav/")
+    fmap = FIELD_MAPS.get(hf_name)
+
+    cleaned = []
+    for r in records:
+        if fmap:
+            text  = _get(r, fmap["text"])
+            label = _norm_label(_get(r, fmap["label"]))
+        else:
+            # Generic fallback
+            text  = r.get("text") or r.get("sentence") or r.get("input") or ""
+            label = str(r.get("label", r.get("answer", r.get("target", "")))).strip().upper()
+        if text and label:
+            cleaned.append({"text": str(text), "label": label})
+
+    print(f"  Loaded {len(cleaned)} records")
+
+    by_label: dict = defaultdict(list)
+    for r in cleaned:
+        by_label[r["label"]].append(r)
+
+    rng = random.Random(seed)
+    train_records, test_records = [], []
+    for label, recs in by_label.items():
+        rng.shuffle(recs)
+        cut = max(1, int(len(recs) * train_ratio))
+        train_records.extend(recs[:cut])
+        test_records.extend(recs[cut:])
+
+    rng.shuffle(train_records)
+    rng.shuffle(test_records)
+
+    for split_name, split_records in [("train", train_records), ("test", test_records)]:
+        out_path = output_dir / f"{stem}__{split_name}.jsonl"
+        with open(out_path, "w") as f:
+            for r in split_records:
+                f.write(json.dumps({"text": r["text"], "label": r["label"]},
+                                   ensure_ascii=False) + "\n")
+        print(f"  [{split_name}]  {len(split_records)} records  "
+              f"labels={_label_dist(split_records)}  → {out_path.name}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--datasets", nargs="+", required=True,
+    parser.add_argument("--datasets", nargs="*", default=[],
                         help="HuggingFace dataset names")
+    parser.add_argument("--local-files", nargs="*", default=[],
+                        help="Local JSONL files as stem:path pairs, "
+                             "e.g. namesarnav_counterbench:mdg/synthetic/data/counterbench_task2_v2.jsonl")
     parser.add_argument("--output-dir", default="mdg/finetune/data")
     args = parser.parse_args()
+
+    if not args.datasets and not args.local_files:
+        parser.error("Provide at least one of --datasets or --local-files")
 
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
     for ds in args.datasets:
         export_dataset(ds, out)
+
+    for entry in args.local_files:
+        if ":" not in entry:
+            print(f"[SKIP] --local-files entry must be stem:path — got: {entry}")
+            continue
+        stem, path = entry.split(":", 1)
+        export_local_jsonl(stem, path, out)
 
     print("\nDone.")
 

@@ -84,6 +84,19 @@ echo torch_pr_xxx_yyy > ~/.slurm_account            # picked up automatically
 `env.sh` reads `~/.slurm_account` (or `$ACCOUNT`), and `submit_all.sh` passes it
 to every stage. Interactive sessions need it explicitly: `srun -A torch_pr_xxx_yyy ...`
 
+**Several projects?** An account is a charge code, not a lock — you can belong to
+many, and any number of jobs (the 22-task array included) can run under one.
+`~/.slurm_account` is just the default; override per run:
+
+```bash
+ACCOUNT=torch_pr_other bash mdg/hpc/submit_all.sh
+ACCOUNT=torch_pr_other bash mdg/hpc/run_one.sh train 0
+```
+
+What caps concurrent jobs is the QOS/partition limits on the account
+(`MaxJobs`/`MaxSubmit`), not this setting. Check yours with:
+`sacctmgr -nP show assoc user=$USER format=account,qos,maxjobs`
+
 ### Partitions (Torch)
 
 Torch has **no default GPU partition**, so every job must name one. `env.sh`

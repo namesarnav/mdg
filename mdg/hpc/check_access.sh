@@ -27,8 +27,19 @@ else
 fi
 
 # Pick an account: explicit $ACCOUNT, else the first project-looking one.
+# Belonging to several projects is normal — an account is a charge code, not a
+# lock, and any number of jobs can run under one. Pick per run with ACCOUNT=...
+PROJECTS=$(echo "$ACCTS" | grep -v '^users$')
+N_PROJ=$(echo "$PROJECTS" | grep -c . || true)
 if [ -z "${ACCOUNT:-}" ]; then
-  ACCOUNT=$(echo "$ACCTS" | grep -v '^users$' | head -1)
+  ACCOUNT=$(echo "$PROJECTS" | head -1)
+  if [ "${N_PROJ:-0}" -gt 1 ]; then
+    echo "  you belong to $N_PROJ projects:"
+    echo "$PROJECTS" | sed 's/^/      /'
+    echo "  defaulting to the first. Choose another per run with:"
+    echo "      ACCOUNT=<account> bash mdg/hpc/submit_all.sh"
+    echo "  or make it your default:  echo <account> > ~/.slurm_account"
+  fi
 fi
 if [ -z "${ACCOUNT:-}" ]; then
   echo ""

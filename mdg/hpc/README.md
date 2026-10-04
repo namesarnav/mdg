@@ -8,7 +8,26 @@ everything into one CSV.
 Grid: **2 models × 11 datasets = 22** training runs, then 22 attack runs ×
 18 recipes = **396 model/dataset/recipe combinations**.
 
-## One-time setup
+## No cluster? Run on a plain GPU VM
+
+The scripts detect their runtime: **container** (Singularity + overlay, on an
+HPC cluster) or **direct** (a normal conda env, anywhere else). On any Linux box
+with an NVIDIA driver — GCP, RunPod, Lambda, Vast, a lab machine:
+
+```bash
+git clone https://github.com/namesarnav/mdg.git ~/mdg && cd ~/mdg
+bash mdg/hpc/setup_vm.sh                 # conda env, no container
+echo 'hf_xxx' > ~/.hf_token && chmod 600 ~/.hf_token
+
+bash mdg/hpc/run_one.sh train 0          # smoke test
+bash mdg/hpc/run_parallel.sh all         # whole grid across this box's GPUs
+```
+
+No Slurm needed — `run_parallel.sh` is the scheduler, one task per GPU. Force a
+runtime with `MDG_RUNTIME=direct` or `MDG_RUNTIME=container` if detection guesses
+wrong.
+
+## One-time setup (HPC cluster)
 
 ```bash
 ssh <netid>@greene.hpc.nyu.edu        # or: <netid>@login.torch.hpc.nyu.edu

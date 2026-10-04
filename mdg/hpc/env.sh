@@ -84,11 +84,35 @@ if [ -f "$HOME/.hf_token" ]; then
   export HUGGINGFACE_TOKEN="$HF_TOKEN"
 fi
 
-# ── Run a command inside the container ────────────────────────────────────────
-# Overlay is mounted READ-ONLY so concurrent array tasks can share it safely.
+# ── Run a command in the project environment ──────────────────────────────────
+# Two runtimes, picked automatically:
+#   container — HPC clusters: singularity + an ext3 overlay holding the conda env
+#   direct    — a plain GPU VM (GCP, RunPod, Lambda, a lab box): a normal conda
+#               env, no container. Built by setup_vm.sh.
+# Force one with MDG_RUNTIME=container|direct.
+_mdg_detect_runtime() {
+  if [ -n "${MDG_RUNTIME:-}" ]; then echo "$MDG_RUNTIME"; return; fi
+  if command -v singularity >/dev/null 2>&1 && [ -f "${OVERLAY:-}" ] && [ -f "${SIF:-}" ]; then
+    echo container
+  else
+    echo direct
+  fi
+}
+export MDG_RUNTIME="$(_mdg_detect_runtime)"
+
+# Conda env used by the direct runtime (setup_vm.sh creates it here).
+export MDG_VENV="${MDG_VENV:-$HOME/mdg-env}"
+
 in_container() {
-  singularity exec --nv \
-    --overlay "${OVERLAY}:ro" \
-    "$SIF" \
-    /bin/bash -c "source /ext3/env.sh; cd $PROJECT; $*"
+  if [ "$MDG_RUNTIME" = "container" ]; then
+    # Overlay mounted READ-ONLY so concurrent tasks can share it safely.
+    singularity exec --nv \
+      --overlay "${OVERLAY}:ro" \
+      "$SIF" \
+      /bin/bash -c "source /ext3/env.sh; cd $PROJECT; $*"
+  else
+    bash -c "
+      if [ -f '$MDG_VENV/bin/activate' ]; then source '$MDG_VENV/bin/activate'; fi
+      cd '$PROJECT'; $*"
+  fi
 }

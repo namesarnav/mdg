@@ -13,6 +13,21 @@ set -euo pipefail
 
 source "$(dirname "$0")/env.sh"
 
+# Refuse to build on a login or data-transfer node: the pip install is heavy and
+# these nodes are shared. Get a compute node first, e.g.
+#   srun -p l40s -A $ACCOUNT --cpus-per-task=4 --mem=32G --time=2:00:00 --pty /bin/bash
+case "$(hostname)" in
+  *login*|dtn*)
+    if [ -z "${MDG_ALLOW_LOGIN_NODE:-}" ]; then
+      echo "[ERROR] Refusing to build on $(hostname) — this is a login/transfer node."
+      echo "        Start a compute node first:"
+      echo "          srun -p ${PARTITION:-l40s} ${ACCOUNT:+-A $ACCOUNT} --cpus-per-task=4 --mem=32G --time=2:00:00 --pty /bin/bash"
+      echo "        (override with MDG_ALLOW_LOGIN_NODE=1 only if you know better)"
+      exit 1
+    fi
+    ;;
+esac
+
 ENV_DIR="$(dirname "$OVERLAY")"
 mkdir -p "$ENV_DIR" "$HF_HOME" "$TA_CACHE_DIR"
 

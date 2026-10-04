@@ -19,7 +19,14 @@ LAST=$(( N_JOBS - 1 ))
 # Pass -p only when a partition is set (Torch needs one, Greene does not).
 PART_ARG=()
 [ -n "${PARTITION:-}" ] && PART_ARG=(--partition="$PARTITION")
-echo "Partition: ${PARTITION:-<cluster default>}"
+# Torch rejects jobs with no project account.
+[ -n "${ACCOUNT:-}" ] && PART_ARG+=(--account="$ACCOUNT")
+echo "Partition: ${PARTITION:-<cluster default>}   Account: ${ACCOUNT:-<none>}"
+if [ -z "${ACCOUNT:-}" ]; then
+  echo "[WARN] No Slurm account set. On Torch this fails with 'Invalid Slurm account'."
+  echo "       Find yours:  sacctmgr -nP show assoc user=$USER format=account"
+  echo "       Then:        echo torch_pr_xxx_yyy > ~/.slurm_account"
+fi
 
 echo "Grid: $N_MODELS models × $N_DATASETS datasets = $N_JOBS tasks per stage"
 
@@ -33,6 +40,7 @@ echo "  attack      → job $ATTACK_ID  (after train)"
 # Consolidation is CPU-only — send it to a CPU partition when one is set.
 CONS_PART=()
 [ -n "${CPU_PARTITION:-}" ] && CONS_PART=(--partition="$CPU_PARTITION")
+[ -n "${ACCOUNT:-}" ] && CONS_PART+=(--account="$ACCOUNT")
 CONS_ID=$(sbatch --parsable "${CONS_PART[@]}" \
   --dependency=afterany:"$ATTACK_ID" "$HPC_DIR/consolidate.sbatch")
 echo "  consolidate → job $CONS_ID  (after attack)"

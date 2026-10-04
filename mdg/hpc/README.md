@@ -42,6 +42,20 @@ SIF=/path/to/cuda.sif OVERLAY_SRC=/path/to/overlay-15GB-500K.ext3.gz \
 
 Run setup from a login or compute node, **not** a data transfer node (`dtn*`).
 
+### Slurm account (Torch)
+
+Torch requires a **project account**; without one every `srun`/`sbatch` fails
+with `Invalid Slurm account: users`. Your PI registers the project at
+https://projects.hpc.nyu.edu. Once you have it:
+
+```bash
+sacctmgr -nP show assoc user=$USER format=account   # what you belong to
+echo torch_pr_xxx_yyy > ~/.slurm_account            # picked up automatically
+```
+
+`env.sh` reads `~/.slurm_account` (or `$ACCOUNT`), and `submit_all.sh` passes it
+to every stage. Interactive sessions need it explicitly: `srun -A torch_pr_xxx_yyy ...`
+
 ### Partitions (Torch)
 
 Torch has **no default GPU partition**, so every job must name one. `env.sh`

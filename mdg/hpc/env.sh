@@ -65,6 +65,14 @@ export TOKENIZERS_PARALLELISM=false
 # h100, h200, b200, rtx6000, and *_public / *_plus variants). Greene does not
 # need one — set PARTITION="" there.
 export PARTITION="${PARTITION:-l40s}"
+# Torch requires a project account (--account=torch_pr_xxx_yyy); without one
+# every srun/sbatch fails with "Invalid Slurm account". Your PI registers it at
+# https://projects.hpc.nyu.edu, then put it in ~/.slurm_account or export ACCOUNT.
+# List the accounts you belong to with:  sacctmgr -nP show assoc user=$USER format=account
+if [ -z "${ACCOUNT:-}" ] && [ -f "$HOME/.slurm_account" ]; then
+  ACCOUNT="$(tr -d '[:space:]' < "$HOME/.slurm_account")"
+fi
+export ACCOUNT="${ACCOUNT:-}"
 # Consolidation needs no GPU; defaults to the same partition so it always has a
 # valid one. On Torch you can send it to CPU nodes with CPU_PARTITION=cpu_short.
 export CPU_PARTITION="${CPU_PARTITION:-$PARTITION}"

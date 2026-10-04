@@ -1,0 +1,2 @@
+model,dataset,recipe,num_examples,n_successful,n_failed,n_skipped,attack_success_rate,avg_queries,timestamp
+bert-base-uncased,e-care,DeepWordBugGao2018,2122,1455,10,657,0.9932,21.0,2026-09-29T01:37:43

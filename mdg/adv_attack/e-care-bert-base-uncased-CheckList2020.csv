@@ -1,0 +1,2 @@
+model,dataset,recipe,num_examples,n_successful,n_failed,n_skipped,attack_success_rate,avg_queries,timestamp
+bert-base-uncased,e-care,CheckList2020,2122,144,1321,657,0.0983,2.88,2026-09-28T04:56:32

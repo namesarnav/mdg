@@ -1,0 +1,2 @@
+model,dataset,recipe,num_examples,n_successful,n_failed,n_skipped,attack_success_rate,avg_queries,timestamp
+bert-base-uncased,bbh-causal-judgement,DeepWordBugGao2018,1000,767,197,36,0.7956,121.26,2026-09-30T17:06:03

@@ -1,0 +1,2 @@
+model,dataset,recipe,num_examples,n_successful,n_failed,n_skipped,attack_success_rate,avg_queries,timestamp
+bert-base-uncased,bbh-causal-judgement,CheckList2020,1000,18,946,36,0.0187,12.48,2026-09-28T16:12:50

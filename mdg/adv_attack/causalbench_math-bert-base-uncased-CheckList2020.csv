@@ -1,0 +1,2 @@
+model,dataset,recipe,num_examples,n_successful,n_failed,n_skipped,attack_success_rate,avg_queries,timestamp
+bert-base-uncased,causalbench_math,CheckList2020,2580,1,2333,246,0.0004,1.25,2026-09-28T08:43:25

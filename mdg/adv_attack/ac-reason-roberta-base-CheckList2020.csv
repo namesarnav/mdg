@@ -1,0 +1,2 @@
+model,dataset,recipe,num_examples,n_successful,n_failed,n_skipped,attack_success_rate,avg_queries,timestamp
+roberta-base,ac-reason,CheckList2020,1000,267,708,25,0.2738,24.46,2026-09-29T03:13:27

@@ -1,0 +1,2 @@
+model,dataset,recipe,num_examples,n_successful,n_failed,n_skipped,attack_success_rate,avg_queries,timestamp
+roberta-base,ac-reason,DeepWordBugGao2018,1000,713,262,25,0.7313,134.53,2026-10-01T05:55:39

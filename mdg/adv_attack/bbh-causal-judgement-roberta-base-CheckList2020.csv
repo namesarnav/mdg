@@ -1,0 +1,2 @@
+model,dataset,recipe,num_examples,n_successful,n_failed,n_skipped,attack_success_rate,avg_queries,timestamp
+roberta-base,bbh-causal-judgement,CheckList2020,1000,12,961,27,0.0123,12.6,2026-09-28T16:33:22

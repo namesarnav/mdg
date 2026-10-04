@@ -27,7 +27,7 @@ DATA_DIR="mdg/finetune/data"
 CKPT_DIR="mdg/finetune/checkpoints"
 ATTACK_OUT="mdg/adv_attack/results"
 RESULTS_CSV="mdg/adv_attack/attack_results.csv"
-NUM_EXAMPLES=200   # examples per recipe per run; raise if you have time
+NUM_EXAMPLES=-1    # -1 = use entire split (no limit)
 
 FAILED=()
 PASSED=()

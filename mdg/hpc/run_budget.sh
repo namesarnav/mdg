@@ -40,6 +40,21 @@ for ((i=0; i<N_JOBS; i++)); do
 done
 TASKS=$(printf '%s\n' "${ORDER[@]}" | sort -n | awk '{print $2}')
 
+# TASKS="0 3 7" restricts this machine to those task ids — use it to split the
+# grid across several machines (Mac / Kaggle / a rented GPU) without overlap.
+if [ -n "${ONLY_TASKS:-}" ]; then
+  TASKS="$ONLY_TASKS"
+  echo "  restricted to tasks: $TASKS"
+fi
+
+echo ""
+echo "  task map (id: dataset × model, smallest split first):"
+for i in $TASKS; do
+  resolve_task "$i"
+  n=$(wc -l < "mdg/finetune/data/${STEM}__test.jsonl" 2>/dev/null || echo 0)
+  printf "    %2d: %-26s %-18s %6s rows\n" "$i" "$DATASET_STEM" "$MODEL_NAME" "$n"
+done
+
 # ── Stage 1: training ─────────────────────────────────────────────────────────
 if [ "$ONLY" = "both" ] || [ "$ONLY" = "train" ]; then
   for i in $TASKS; do

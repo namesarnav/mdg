@@ -48,7 +48,7 @@ ACC_ARG=()
 # need ~10-20GB, so a 24-48GB card is plenty. Asking for an H200/B200 only
 # means a longer queue for no gain.
 CANDIDATES=("$@")
-[ ${#CANDIDATES[@]} -eq 0 ] && CANDIDATES=(l40s rtx6000 a100)
+[ ${#CANDIDATES[@]} -eq 0 ] && CANDIDATES=(a100 l40s rtx6000)
 
 echo ""
 echo "[2/3] Partition availability (A=allocated I=idle O=other T=total)"

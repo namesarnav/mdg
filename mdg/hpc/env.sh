@@ -64,7 +64,7 @@ export TOKENIZERS_PARALLELISM=false
 # Torch requires an explicit GPU partition (sinfo -s lists them: l40s, a100,
 # h100, h200, b200, rtx6000, and *_public / *_plus variants). Greene does not
 # need one — set PARTITION="" there.
-export PARTITION="${PARTITION:-l40s}"
+export PARTITION="${PARTITION:-a100}"
 # Torch requires a project account (--account=torch_pr_xxx_yyy); without one
 # every srun/sbatch fails with "Invalid Slurm account". Your PI registers it at
 # https://projects.hpc.nyu.edu, then put it in ~/.slurm_account or export ACCOUNT.

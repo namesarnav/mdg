@@ -61,14 +61,14 @@ buys nothing here except a longer queue.
 
 | Partition | Card | Nodes | Verdict |
 |---|---|---|---|
-| `l40s` | L40S 48GB | 68 | **Default.** Most capacity on the cluster, so the 22 tasks spread out |
+| `a100` | A100 | 43 | **Default.** Ample memory and plenty of nodes |
+| `l40s` | L40S 48GB | 68 | Most capacity on the cluster — good fallback |
 | `rtx6000` | RTX 6000 24GB | 6 | Fits, but few nodes — expect queueing |
-| `a100` | A100 | 43 | Fine; no faster for models this size |
 | `h100`/`h200`/`b200` | — | — | Overkill. Longer queue, no benefit |
 
 Throughput here is decided by how many tasks run **concurrently**, not by card
-speed — the attack stage is the long pole. `l40s` with its 68 nodes is the best
-bet for finishing inside a day.
+speed — the attack stage is the long pole. `a100` (43 nodes) is the default; `l40s`
+(68 nodes) is the fallback if the a100 queue is long.
 
 ### Slurm account (Torch)
 
@@ -87,18 +87,18 @@ to every stage. Interactive sessions need it explicitly: `srun -A torch_pr_xxx_y
 ### Partitions (Torch)
 
 Torch has **no default GPU partition**, so every job must name one. `env.sh`
-defaults to `PARTITION=l40s`; `sinfo -s` lists what exists (`l40s`, `a100`,
+defaults to `PARTITION=a100`; `sinfo -s` lists what exists (`l40s`, `a100`,
 `h100`, `h200`, `b200`, `rtx6000`, plus `*_public` / `*_plus` variants you may
 or may not have access to). Override per run:
 
 ```bash
-PARTITION=a100 bash mdg/hpc/submit_all.sh
-PARTITION=l40s CPU_PARTITION=cpu_short bash mdg/hpc/submit_all.sh
+PARTITION=l40s bash mdg/hpc/submit_all.sh
+PARTITION=a100 CPU_PARTITION=cpu_short bash mdg/hpc/submit_all.sh
 ```
 
-An L40S (48 GB) is ample for t5-base and Llama-3.2-1B; there is no reason to
-queue for an H200. Submitting an sbatch file by hand needs the flag too:
-`sbatch -p l40s --array=0-21 mdg/hpc/train.sbatch`. On Greene, set `PARTITION=""`.
+An A100 is ample for t5-base and Llama-3.2-1B; there is no reason to queue for
+an H200. Submitting an sbatch file by hand needs the flag too:
+`sbatch -p a100 --array=0-21 mdg/hpc/train.sbatch`. On Greene, set `PARTITION=""`.
 
 ## Run everything
 

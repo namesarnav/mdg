@@ -157,8 +157,16 @@ def build_model_wrapper(model_path: str):
         torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
     )
     model.eval()
+    # CUDA when present; Apple Silicon GPU (MPS) otherwise — attacks are pure
+    # inference, and on a Mac that is several times faster than CPU.
     if torch.cuda.is_available():
         model = model.cuda()
+        print("  device: cuda")
+    elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+        model = model.to("mps")
+        print("  device: mps (Apple Silicon)")
+    else:
+        print("  device: cpu")
 
     return HuggingFaceModelWrapper(model, tokenizer)
 

@@ -341,6 +341,7 @@ def run(
     results_csv: Optional[str] = None,
     model_name_override: Optional[str] = None,
     dataset_name_override: Optional[str] = None,
+    skip_existing: bool = True,
 ) -> None:
     import textattack
 
@@ -397,6 +398,18 @@ def run(
 
     all_summaries = []
     for recipe_name, recipe_class in all_recipes:
+        # Resume at recipe granularity: a finished recipe has written its
+        # summary JSON, so an interrupted run (Colab timeout, job wall clock)
+        # picks up where it stopped instead of redoing the whole pair.
+        existing = run_dir / f"{recipe_name}_summary.json"
+        if skip_existing and existing.exists():
+            try:
+                with open(existing) as f:
+                    all_summaries.append(json.load(f))
+                print(f"\n  [{recipe_name}] SKIP (already done — {existing.name})")
+                continue
+            except json.JSONDecodeError:
+                print(f"\n  [{recipe_name}] re-running (corrupt {existing.name})")
         summary = run_recipe(
             recipe_name=recipe_name,
             recipe_class_name=recipe_class,
@@ -475,6 +488,9 @@ def main() -> None:
                         help="CSV file to append per-recipe results to")
     parser.add_argument("--model-name",   default=None,
                         help="Label for model column in CSV (default: checkpoint dir name)")
+    parser.add_argument("--no-skip-existing", action="store_true",
+                        help="Re-run recipes that already have a summary JSON "
+                             "(default: skip them, so runs resume per recipe)")
     parser.add_argument("--dataset-name", default=None,
                         help="Label for dataset column in CSV (default: file stem)")
     args = parser.parse_args()
@@ -509,6 +525,7 @@ def main() -> None:
         results_csv=args.results_csv,
         model_name_override=args.model_name,
         dataset_name_override=args.dataset_name,
+        skip_existing=not args.no_skip_existing,
     )
 
 

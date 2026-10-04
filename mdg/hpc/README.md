@@ -8,6 +8,50 @@ everything into one CSV.
 Grid: **2 models × 11 datasets = 22** training runs, then 22 attack runs ×
 18 recipes = **396 model/dataset/recipe combinations**.
 
+## Google Colab
+
+Works, but Colab sessions are capped (~12h on Pro, less on free, and idle
+disconnects), so the grid has to be chipped away at rather than run in one go.
+Runs resume **per recipe**, so a dropped session loses at most the recipe that
+was in flight.
+
+Keep outputs on Drive so nothing is lost when the VM is recycled:
+
+```python
+from google.colab import drive; drive.mount('/content/drive')
+%cd /content/drive/MyDrive
+!git clone https://github.com/namesarnav/mdg.git || (cd mdg && git pull)
+%cd /content/drive/MyDrive/mdg
+```
+
+Colab already ships torch built for its GPU — do **not** reinstall it:
+
+```python
+!pip install -q "transformers>=4.46,<5" "textattack>=0.3.10" peft accelerate \
+    "datasets>=3.0,<4" sentencepiece scikit-learn
+```
+
+Then run tasks one at a time, re-running the cell after each disconnect:
+
+```python
+import os
+os.environ["MDG_RUNTIME"] = "direct"      # no container on Colab
+os.environ["PROJECT"]     = "/content/drive/MyDrive/mdg"
+os.environ["MDG_VENV"]    = ""            # use Colab's own python
+
+!bash mdg/hpc/run_one.sh train 0          # task 0..21
+!bash mdg/hpc/run_one.sh attack 0
+```
+
+Finished pairs and finished recipes are skipped automatically, so re-running the
+same cell always continues rather than restarting.
+
+**Reality check:** a T4 is several times slower than an A100, and you get one
+GPU instead of 22 in parallel. The full uncapped grid is not achievable on Colab
+in any reasonable calendar time — use it to work through the small datasets
+(`counterbench`, `ac-reason`, `bbh-causal-judgement`), or cap with
+`NUM_EXAMPLES=200` per recipe.
+
 ## No cluster? Run on a plain GPU VM
 
 The scripts detect their runtime: **container** (Singularity + overlay, on an

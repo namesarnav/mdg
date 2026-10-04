@@ -13,6 +13,8 @@ def main():
     parser.add_argument("--epochs",        type=int,   default=5)
     parser.add_argument("--batch",         type=int,   default=16)
     parser.add_argument("--lr",            type=float, default=2e-5)
+    parser.add_argument("--model",         default="bert-base-uncased",
+                        help="HuggingFace model id (default: bert-base-uncased)")
     parser.add_argument("--seed",          type=int,   default=42)
     parser.add_argument("--push-to-hub",   action="store_true")
     parser.add_argument("--hub-model-id",  default=None)
@@ -23,10 +25,10 @@ def main():
     hub_model_id = args.hub_model_id
     if args.push_to_hub and not hub_model_id:
         dataset_stem = Path(args.train).stem.replace("__train", "").replace("namesarnav_", "")
-        hub_model_id = f"namesarnav/{dataset_stem}-bert-base-uncased"
+        hub_model_id = f"namesarnav/{dataset_stem}-{args.model.split('/')[-1]}"
 
     cfg = FinetuneConfig(
-        model_name    = "bert-base-uncased",
+        model_name    = args.model,
         model_type    = "encoder",
         train_path    = args.train,
         eval_path     = args.eval,

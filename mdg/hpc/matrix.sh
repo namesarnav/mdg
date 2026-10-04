@@ -21,9 +21,13 @@ DATASETS=(
 # checkpoint_dir_name must equal basename(hf_model_id) — that is the directory
 # mdg/models/base*.py writes into.
 MODELS=(
-  "mdg.models.t5|t5-base|t5-base|--epochs 5 --batch 16 --lr 3e-4"
-  "mdg.models.llama|Llama-3.2-1B|meta-llama/Llama-3.2-1B|--epochs 3 --batch 4 --lr 2e-4 --lora-r 16 --no-4bit"
+  "mdg.models.bert|bert-base-uncased|bert-base-uncased|--epochs 5 --batch 16 --lr 2e-5"
+  "mdg.models.roberta|roberta-base|roberta-base|--epochs 5 --batch 16 --lr 2e-5"
 )
+
+# Previously run; re-enable by moving back into MODELS above.
+#   "mdg.models.t5|t5-base|t5-base|--epochs 5 --batch 16 --lr 3e-4"
+#   "mdg.models.llama|Llama-3.2-1B|meta-llama/Llama-3.2-1B|--epochs 3 --batch 4 --lr 2e-4 --lora-r 16 --no-4bit"
 
 N_DATASETS=${#DATASETS[@]}
 N_MODELS=${#MODELS[@]}

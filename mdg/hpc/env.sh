@@ -7,9 +7,34 @@
 export PROJECT="${PROJECT:-/scratch/$USER/mdg}"
 export OVERLAY="${OVERLAY:-/scratch/$USER/mdg-env/overlay-15GB-500K.ext3}"
 
-# CUDA container image. Verify what your cluster has with:
-#   ls /scratch/work/public/singularity/ | grep cuda
-export SIF="${SIF:-/scratch/work/public/singularity/cuda12.6.3-cudnn9.5.1-ubuntu22.04.5.sif}"
+# ── Cluster image discovery ───────────────────────────────────────────────────
+# Greene keeps images under /scratch/work/public, Torch under /share/apps.
+# Both are searched, so the same scripts run on either cluster. Override by
+# exporting SIF / OVERLAY_SRC before sourcing this file.
+_mdg_find_sif() {
+  local d cand
+  for d in /share/apps/images /scratch/work/public/singularity; do
+    [ -d "$d" ] || continue
+    cand=$(ls -1 "$d"/cuda*.sif 2>/dev/null | sort -V | tail -1)
+    [ -n "$cand" ] && { echo "$cand"; return 0; }
+  done
+  return 1
+}
+
+_mdg_find_overlay_src() {
+  local d cand
+  for d in /share/apps/overlay-fs-ext3 /scratch/work/public/overlay-fs-ext3; do
+    [ -d "$d" ] || continue
+    # Prefer the 15GB/500K image; fall back to any overlay in that directory.
+    cand=$(ls -1 "$d"/overlay-15GB-500K.ext3.gz 2>/dev/null | head -1)
+    [ -z "$cand" ] && cand=$(ls -1 "$d"/overlay-*.ext3.gz 2>/dev/null | head -1)
+    [ -n "$cand" ] && { echo "$cand"; return 0; }
+  done
+  return 1
+}
+
+export SIF="${SIF:-$(_mdg_find_sif || true)}"
+export OVERLAY_SRC="${OVERLAY_SRC:-$(_mdg_find_overlay_src || true)}"
 
 # Keep every cache on /scratch — /home has a hard inode quota that HuggingFace
 # model caches blow through immediately.

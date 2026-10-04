@@ -16,11 +16,26 @@ source "$(dirname "$0")/env.sh"
 ENV_DIR="$(dirname "$OVERLAY")"
 mkdir -p "$ENV_DIR" "$HF_HOME" "$TA_CACHE_DIR"
 
+# ── Check what env.sh discovered ──────────────────────────────────────────────
+if [ -z "${SIF:-}" ] || [ ! -f "$SIF" ]; then
+  echo "[ERROR] No CUDA .sif image found. Look for one with:"
+  echo "          ls /share/apps/images/ /scratch/work/public/singularity/ 2>/dev/null | grep -i cuda"
+  echo "        then re-run as:  SIF=/path/to/image.sif bash $0"
+  exit 1
+fi
+if [ -z "${OVERLAY_SRC:-}" ] || [ ! -f "$OVERLAY_SRC" ]; then
+  echo "[ERROR] No overlay image found. Look for one with:"
+  echo "          ls /share/apps/overlay-fs-ext3/ /scratch/work/public/overlay-fs-ext3/ 2>/dev/null"
+  echo "        then re-run as:  OVERLAY_SRC=/path/to/overlay-15GB-500K.ext3.gz bash $0"
+  exit 1
+fi
+echo "  container image : $SIF"
+echo "  overlay source  : $OVERLAY_SRC"
+
 # ── Overlay image ─────────────────────────────────────────────────────────────
 if [ ! -f "$OVERLAY" ]; then
-  echo "[1/3] Creating overlay at $OVERLAY"
-  # Verify the source with: ls /scratch/work/public/overlay-fs-ext3/
-  cp -rp /scratch/work/public/overlay-fs-ext3/overlay-15GB-500K.ext3.gz "$OVERLAY.gz"
+  echo "[1/3] Creating overlay at $OVERLAY (from $OVERLAY_SRC)"
+  cp -p "$OVERLAY_SRC" "$OVERLAY.gz"
   gunzip "$OVERLAY.gz"
 else
   echo "[1/3] Overlay already exists — reusing $OVERLAY"

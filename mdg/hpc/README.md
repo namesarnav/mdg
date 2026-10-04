@@ -1,4 +1,4 @@
-# Running MDG on NYU Greene
+# Running MDG on NYU HPC (Greene or Torch)
 
 Fine-tunes **t5-base** and **meta-llama/Llama-3.2-1B** on all 11 causal
 classification datasets, pushes each model to the HuggingFace Hub, then attacks
@@ -11,9 +11,9 @@ Grid: **2 models × 11 datasets = 22** training runs, then 22 attack runs ×
 ## One-time setup
 
 ```bash
-ssh <netid>@greene.hpc.nyu.edu
+ssh <netid>@greene.hpc.nyu.edu        # or: <netid>@login.torch.hpc.nyu.edu
 
-# 1. Clone to /scratch (NOT /home — it has a strict inode quota)
+# 1. Clone to /scratch (NOT /home — its default quota is 30,000 inodes)
 git clone git@github.com:namesarnav/mdg.git /scratch/$USER/mdg
 cd /scratch/$USER/mdg
 
@@ -28,14 +28,19 @@ bash mdg/hpc/00_setup_env.sh
 exit
 ```
 
-Verify the cluster's image paths first — they change between clusters and over
-time. If either command prints nothing, update `SIF` / the overlay path in
-`env.sh`:
+`env.sh` finds the container and overlay images automatically — Greene keeps
+them under `/scratch/work/public/`, Torch under `/share/apps/`. If setup reports
+that it found neither, locate them yourself and pass them in:
 
 ```bash
-ls /scratch/work/public/singularity/ | grep cuda
-ls /scratch/work/public/overlay-fs-ext3/
+ls /share/apps/images/ /scratch/work/public/singularity/ 2>/dev/null | grep -i cuda
+ls /share/apps/overlay-fs-ext3/ /scratch/work/public/overlay-fs-ext3/ 2>/dev/null
+
+SIF=/path/to/cuda.sif OVERLAY_SRC=/path/to/overlay-15GB-500K.ext3.gz \
+  bash mdg/hpc/00_setup_env.sh
 ```
+
+Run setup from a login or compute node, **not** a data transfer node (`dtn*`).
 
 ## Run everything
 

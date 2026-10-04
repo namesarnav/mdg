@@ -202,17 +202,28 @@ Add or remove models and datasets in `matrix.sh` — both stages read it, so the
 array size follows automatically (`submit_all.sh` computes the range; if you
 `sbatch` by hand, update `#SBATCH --array=0-N`).
 
-`NUM_EXAMPLES=200` per recipe is the default because each recipe queries the
-model hundreds of times per example; the full `corr2cause` split (200k rows) ×
-18 recipes would not finish. `QUERY_BUDGET=2000` likewise keeps the search
-recipes (PSO, genetic) from stalling on long inputs.
+Attacks run on **every example of the attacked split with no query cap** by
+default (`NUM_EXAMPLES=-1`, `QUERY_BUDGET` unset). That is 48,046 examples per
+model across the 11 datasets, × 18 recipes × 2 models ≈ **1.7M example-attacks**,
+each costing hundreds of model queries.
+
+Expect this to run for **weeks**, not days, even with all 22 tasks in parallel.
+To trade coverage for time, cap either axis:
+
+```bash
+NUM_EXAMPLES=500 sbatch mdg/hpc/attack.sbatch    # 500 examples per recipe
+QUERY_BUDGET=2000 sbatch mdg/hpc/attack.sbatch   # cap the search per example
+```
+
+The two biggest splits dominate: `natquest` and `Quriosity` are 13,500 rows each
+(56% of all attacked examples between them).
 
 ## Time and resource notes
 
 - Training t5-base: minutes to ~2 hours per dataset. Llama-3.2-1B with LoRA:
   roughly 1–4 hours. The 12 h wall clock has headroom; `corr2cause` is the big one.
-- Attacks are the expensive stage — 18 recipes × 200 examples is typically
-  4–12 hours per pair, hence the 24 h limit. If a task hits the limit,
+- Attacks are the expensive stage. On full splits a single (model, dataset) pair
+  can take days, hence the 7-day limit. If a task hits the limit,
   completed recipes are already written and you can resubmit, but delete that
   pair's partial `<recipe>.jsonl` for whichever recipe was mid-run.
 - Llama trains **unquantized** (`--no-4bit`) so the LoRA adapter can be merged

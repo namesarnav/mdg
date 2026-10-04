@@ -8,15 +8,16 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64GB
 #SBATCH --gres=gpu:1
-#SBATCH --time=24:00:00
+#SBATCH --time=7-00:00:00
 #SBATCH --output=/scratch/%u/mdg-logs/attack-%A_%a.out
 #SBATCH --error=/scratch/%u/mdg-logs/attack-%A_%a.out
 #
 # Run EVERY TextAttack recipe against one (model, dataset) pair per array task.
 # 2 models × 11 datasets = 22 tasks, 18 recipes inside each.
 #
-#   sbatch mdg/hpc/attack.sbatch                  # 200 examples per recipe
-#   NUM_EXAMPLES=500 sbatch mdg/hpc/attack.sbatch # more examples, slower
+#   sbatch mdg/hpc/attack.sbatch                  # EVERY example, no query cap
+#   NUM_EXAMPLES=500 sbatch mdg/hpc/attack.sbatch # cap examples if time is short
+#   QUERY_BUDGET=2000 sbatch mdg/hpc/attack.sbatch # cap queries per example
 #
 # Per recipe this writes:
 #   mdg/adv_attack/results/<stem>/<model>/<recipe>.jsonl         — every attacked

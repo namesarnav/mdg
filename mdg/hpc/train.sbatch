@@ -8,7 +8,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64GB
 #SBATCH --gres=gpu:1
-#SBATCH --time=12:00:00
+#SBATCH --time=2-00:00:00
 #SBATCH --output=/scratch/%u/mdg-logs/train-%A_%a.out
 #SBATCH --error=/scratch/%u/mdg-logs/train-%A_%a.out
 #

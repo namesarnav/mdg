@@ -70,8 +70,10 @@ case "$STAGE" in
     ;;
 
   attack)
-    NUM_EXAMPLES="${NUM_EXAMPLES:-200}"
-    QUERY_BUDGET="${QUERY_BUDGET:-2000}"
+    # Full split and unlimited queries by default. -1 = every example.
+    NUM_EXAMPLES="${NUM_EXAMPLES:--1}"
+    # Empty = no --query-budget flag = TextAttack searches without a cap.
+    QUERY_BUDGET="${QUERY_BUDGET:-}"
     ATTACK_OUT="mdg/adv_attack/results"
     DONE_MARKER="$PROJECT/${ATTACK_OUT}/${STEM}/${MODEL_NAME}/all_summaries.json"
 
@@ -92,7 +94,9 @@ case "$STAGE" in
     else
       ATTACK_FILE="$TRAIN_FILE"
     fi
-    echo "  attack split=$(basename $ATTACK_FILE)  examples=$NUM_EXAMPLES  budget=$QUERY_BUDGET"
+    BUDGET_ARG=""
+    [ -n "$QUERY_BUDGET" ] && BUDGET_ARG="--query-budget $QUERY_BUDGET"
+    echo "  attack split=$(basename $ATTACK_FILE)  examples=${NUM_EXAMPLES/-1/ALL}  budget=${QUERY_BUDGET:-unlimited}"
 
     in_container "python -m mdg.adv_attack.attack \
       --model        '$MODEL_REF' \
@@ -100,7 +104,7 @@ case "$STAGE" in
       --output-dir   '$ATTACK_OUT' \
       --label-space  ${LABELS//,/ } \
       --num-examples $NUM_EXAMPLES \
-      --query-budget $QUERY_BUDGET \
+      $BUDGET_ARG \
       --results-csv  'mdg/adv_attack/attack_results.csv' \
       --model-name   '$MODEL_NAME' \
       --dataset-name '$DATASET_STEM'"

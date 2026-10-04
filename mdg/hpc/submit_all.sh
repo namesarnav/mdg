@@ -12,19 +12,28 @@
 set -euo pipefail
 
 HPC_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$HPC_DIR/env.sh"
 source "$HPC_DIR/matrix.sh"
 LAST=$(( N_JOBS - 1 ))
 
+# Pass -p only when a partition is set (Torch needs one, Greene does not).
+PART_ARG=()
+[ -n "${PARTITION:-}" ] && PART_ARG=(--partition="$PARTITION")
+echo "Partition: ${PARTITION:-<cluster default>}"
+
 echo "Grid: $N_MODELS models × $N_DATASETS datasets = $N_JOBS tasks per stage"
 
-TRAIN_ID=$(sbatch --parsable --array=0-$LAST "$HPC_DIR/train.sbatch")
+TRAIN_ID=$(sbatch --parsable "${PART_ARG[@]}" --array=0-$LAST "$HPC_DIR/train.sbatch")
 echo "  train       → job $TRAIN_ID"
 
-ATTACK_ID=$(sbatch --parsable --array=0-$LAST \
+ATTACK_ID=$(sbatch --parsable "${PART_ARG[@]}" --array=0-$LAST \
   --dependency=afterok:"$TRAIN_ID" "$HPC_DIR/attack.sbatch")
 echo "  attack      → job $ATTACK_ID  (after train)"
 
-CONS_ID=$(sbatch --parsable \
+# Consolidation is CPU-only — send it to a CPU partition when one is set.
+CONS_PART=()
+[ -n "${CPU_PARTITION:-}" ] && CONS_PART=(--partition="$CPU_PARTITION")
+CONS_ID=$(sbatch --parsable "${CONS_PART[@]}" \
   --dependency=afterany:"$ATTACK_ID" "$HPC_DIR/consolidate.sbatch")
 echo "  consolidate → job $CONS_ID  (after attack)"
 

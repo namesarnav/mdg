@@ -42,6 +42,22 @@ SIF=/path/to/cuda.sif OVERLAY_SRC=/path/to/overlay-15GB-500K.ext3.gz \
 
 Run setup from a login or compute node, **not** a data transfer node (`dtn*`).
 
+### Partitions (Torch)
+
+Torch has **no default GPU partition**, so every job must name one. `env.sh`
+defaults to `PARTITION=l40s`; `sinfo -s` lists what exists (`l40s`, `a100`,
+`h100`, `h200`, `b200`, `rtx6000`, plus `*_public` / `*_plus` variants you may
+or may not have access to). Override per run:
+
+```bash
+PARTITION=a100 bash mdg/hpc/submit_all.sh
+PARTITION=l40s CPU_PARTITION=cpu_short bash mdg/hpc/submit_all.sh
+```
+
+An L40S (48 GB) is ample for t5-base and Llama-3.2-1B; there is no reason to
+queue for an H200. Submitting an sbatch file by hand needs the flag too:
+`sbatch -p l40s --array=0-21 mdg/hpc/train.sbatch`. On Greene, set `PARTITION=""`.
+
 ## Run everything
 
 ```bash

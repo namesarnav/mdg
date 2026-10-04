@@ -11,11 +11,27 @@ export OVERLAY="${OVERLAY:-/scratch/$USER/mdg-env/overlay-15GB-500K.ext3}"
 # Greene keeps images under /scratch/work/public, Torch under /share/apps.
 # Both are searched, so the same scripts run on either cluster. Override by
 # exporting SIF / OVERLAY_SRC before sourcing this file.
+# Known-good images first (torch 2.5.1 wheels are built against CUDA 12.x; the
+# newest image on a cluster is often CUDA 13, which is not what we want here).
+_MDG_PREFERRED_SIFS=(
+  cuda12.6.3-cudnn9.5.1-ubuntu22.04.5.sif
+  cuda12.8.1-cudnn9.8.0-ubuntu24.04.2.sif
+  cuda12.2.2-cudnn8.9.4-devel-ubuntu22.04.3.sif
+  cuda12.1.1-cudnn8.9.0-devel-ubuntu22.04.2.sif
+)
+
 _mdg_find_sif() {
-  local d cand
+  local d p cand
   for d in /share/apps/images /scratch/work/public/singularity; do
     [ -d "$d" ] || continue
-    cand=$(ls -1 "$d"/cuda*.sif 2>/dev/null | sort -V | tail -1)
+    for p in "${_MDG_PREFERRED_SIFS[@]}"; do
+      [ -f "$d/$p" ] && { echo "$d/$p"; return 0; }
+    done
+  done
+  # Nothing known — take the newest CUDA 12 image that also ships cuDNN.
+  for d in /share/apps/images /scratch/work/public/singularity; do
+    [ -d "$d" ] || continue
+    cand=$(ls -1 "$d"/cuda12*cudnn*.sif 2>/dev/null | sort -V | tail -1)
     [ -n "$cand" ] && { echo "$cand"; return 0; }
   done
   return 1
@@ -43,6 +59,15 @@ export TRANSFORMERS_CACHE="$HF_HOME"
 export HF_DATASETS_CACHE="$HF_HOME/datasets"
 export TA_CACHE_DIR="${TA_CACHE_DIR:-/scratch/$USER/textattack_cache}"
 export TOKENIZERS_PARALLELISM=false
+
+# ── Slurm ─────────────────────────────────────────────────────────────────────
+# Torch requires an explicit GPU partition (sinfo -s lists them: l40s, a100,
+# h100, h200, b200, rtx6000, and *_public / *_plus variants). Greene does not
+# need one — set PARTITION="" there.
+export PARTITION="${PARTITION:-l40s}"
+# Consolidation needs no GPU; defaults to the same partition so it always has a
+# valid one. On Torch you can send it to CPU nodes with CPU_PARTITION=cpu_short.
+export CPU_PARTITION="${CPU_PARTITION:-$PARTITION}"
 
 # ── HuggingFace token (needed to download gated Llama + to push models) ───────
 # Put your token in ~/.hf_token (chmod 600). Never commit it.

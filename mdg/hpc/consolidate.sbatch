@@ -1,4 +1,6 @@
 #!/bin/bash
+# NOTE: Torch has no default GPU partition — submit_all.sh passes --partition
+# from $PARTITION (env.sh). Submitting by hand? add: -p l40s
 #SBATCH --job-name=mdg-consolidate
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=2

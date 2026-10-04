@@ -1,4 +1,6 @@
 #!/bin/bash
+# NOTE: Torch has no default GPU partition — submit_all.sh passes --partition
+# from $PARTITION (env.sh). Submitting by hand? add: -p l40s
 #SBATCH --job-name=mdg-train
 #SBATCH --array=0-21
 #SBATCH --nodes=1

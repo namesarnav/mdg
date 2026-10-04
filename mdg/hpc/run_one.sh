@@ -96,6 +96,10 @@ case "$STAGE" in
     fi
     BUDGET_ARG=""
     [ -n "$QUERY_BUDGET" ] && BUDGET_ARG="--query-budget $QUERY_BUDGET"
+    # RECIPES="TextFoolerJin2019 PWWSRen2019" runs just those — lets a caller
+    # work through one recipe at a time inside a short session.
+    RECIPE_ARG=""
+    [ -n "${RECIPES:-}" ] && RECIPE_ARG="--recipes ${RECIPES}"
     echo "  attack split=$(basename $ATTACK_FILE)  examples=${NUM_EXAMPLES/-1/ALL}  budget=${QUERY_BUDGET:-unlimited}"
 
     in_container "python -m mdg.adv_attack.attack \
@@ -105,6 +109,7 @@ case "$STAGE" in
       --label-space  ${LABELS//,/ } \
       --num-examples $NUM_EXAMPLES \
       $BUDGET_ARG \
+      $RECIPE_ARG \
       --results-csv  'mdg/adv_attack/attack_results.csv' \
       --model-name   '$MODEL_NAME' \
       --dataset-name '$DATASET_STEM'"

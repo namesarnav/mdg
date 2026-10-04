@@ -8,6 +8,29 @@ everything into one CSV.
 Grid: **2 models × 11 datasets = 22** training runs, then 22 attack runs ×
 18 recipes = **396 model/dataset/recipe combinations**.
 
+## Chipping away on free GPU hours (Kaggle / Colab)
+
+No cluster and no budget? The grid is fully resumable at **recipe** granularity
+(396 units), so you can work through it across many short sessions.
+
+**Kaggle is the better free option**: 30 GPU-hours/week (P100 or 2×T4), 12-hour
+sessions, versus Colab's tighter free tier.
+
+```bash
+bash mdg/hpc/status.sh          # what is done, what is left
+bash mdg/hpc/run_budget.sh 11   # work for 11h, then stop cleanly
+```
+
+`run_budget.sh` goes **cheapest-first** — smallest dataset, fastest recipe — and
+runs attacks one recipe at a time, so a short session completes whole units
+rather than stalling halfway through `natquest`. Re-run it next session and it
+picks up exactly where it stopped. `status.sh` prints a per-pair progress bar
+and the overall percentage.
+
+Persist results between sessions, since the VM is wiped: keep the repo on Drive
+(Colab), save `/kaggle/working` as a Kaggle Dataset, or commit the small JSON/CSV
+outputs back to git after each session.
+
 ## Google Colab
 
 Works, but Colab sessions are capped (~12h on Pro, less on free, and idle

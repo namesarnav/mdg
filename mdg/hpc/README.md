@@ -42,6 +42,34 @@ SIF=/path/to/cuda.sif OVERLAY_SRC=/path/to/overlay-15GB-500K.ext3.gz \
 
 Run setup from a login or compute node, **not** a data transfer node (`dtn*`).
 
+### Check you can get a GPU first
+
+```bash
+bash mdg/hpc/check_access.sh            # or: bash mdg/hpc/check_access.sh a100
+```
+
+Lists your Slurm accounts, shows how busy each candidate partition is, then asks
+for one GPU for five minutes and runs `nvidia-smi`. If this fails, nothing else
+will work — the error tells you whether it is the account, the partition, or a
+full cluster. Safe to run from a login node.
+
+### Which GPU to ask for
+
+t5-base is 220M parameters and Llama-3.2-1B is 1B — in bf16 with LoRA they need
+roughly **10–20 GB**, so a 24–48 GB card is ample. Asking for an H200 or B200
+buys nothing here except a longer queue.
+
+| Partition | Card | Nodes | Verdict |
+|---|---|---|---|
+| `l40s` | L40S 48GB | 68 | **Default.** Most capacity on the cluster, so the 22 tasks spread out |
+| `rtx6000` | RTX 6000 24GB | 6 | Fits, but few nodes — expect queueing |
+| `a100` | A100 | 43 | Fine; no faster for models this size |
+| `h100`/`h200`/`b200` | — | — | Overkill. Longer queue, no benefit |
+
+Throughput here is decided by how many tasks run **concurrently**, not by card
+speed — the attack stage is the long pole. `l40s` with its 68 nodes is the best
+bet for finishing inside a day.
+
 ### Slurm account (Torch)
 
 Torch requires a **project account**; without one every `srun`/`sbatch` fails

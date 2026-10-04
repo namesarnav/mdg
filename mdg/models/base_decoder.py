@@ -127,6 +127,9 @@ def build_dataset(
 
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
+    # Decoder classification heads return (logits, past_key_values, ...).
+    if isinstance(logits, (tuple, list)):
+        logits = logits[0]
     preds = np.argmax(logits, axis=-1)
     valid = labels != -1
     acc = accuracy_score(labels[valid], preds[valid])

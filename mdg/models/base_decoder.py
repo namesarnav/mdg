@@ -11,9 +11,11 @@ Dependencies:
 """
 from __future__ import annotations
 
+import csv
 import json
 import os
 import random
+from datetime import datetime
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -84,6 +86,20 @@ class DecoderFinetuneConfig:
     bf16:                    bool  = torch.cuda.is_available()
     early_stopping_patience: int   = 3
 
+    # Hub
+    push_to_hub:   bool          = False
+    hub_model_id:  Optional[str] = None
+    hub_token:     Optional[str] = None
+
+    # Results
+    dataset_name:  str           = ""
+    results_csv:   Optional[str] = None
+
+    # When LoRA is used, merge the adapter into the base weights before saving
+    # so the checkpoint loads with plain AutoModelForSequenceClassification
+    # (TextAttack's HuggingFaceModelWrapper cannot load a bare PEFT adapter).
+    merge_lora_on_save: bool     = True
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Data loading
@@ -115,7 +131,8 @@ def compute_metrics(eval_pred):
     valid = labels != -1
     acc = accuracy_score(labels[valid], preds[valid])
     f1  = f1_score(labels[valid], preds[valid], average="macro", zero_division=0)
-    return {"accuracy": acc, "macro_f1": f1}
+    micro = f1_score(labels[valid], preds[valid], average="micro", zero_division=0)
+    return {"accuracy": acc, "macro_f1": f1, "micro_f1": micro}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -218,7 +235,7 @@ def run(cfg: DecoderFinetuneConfig) -> None:
         learning_rate=cfg.learning_rate,
         weight_decay=cfg.weight_decay,
         warmup_ratio=cfg.warmup_ratio,
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",
         save_strategy="epoch",
         load_best_model_at_end=True,
         metric_for_best_model="macro_f1",
@@ -236,7 +253,7 @@ def run(cfg: DecoderFinetuneConfig) -> None:
         args=training_args,
         train_dataset=train_tok,
         eval_dataset=eval_tok,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         data_collator=DataCollatorWithPadding(tokenizer),
         compute_metrics=compute_metrics,
         callbacks=[EarlyStoppingCallback(early_stopping_patience=cfg.early_stopping_patience)],
@@ -252,9 +269,74 @@ def run(cfg: DecoderFinetuneConfig) -> None:
     print(json.dumps(results, indent=2))
 
     # ── Save ───────────────────────────────────────────────────────────────────
-    trainer.save_model(output_dir)
+    # With LoRA, save a MERGED full model: TextAttack loads checkpoints with
+    # AutoModelForSequenceClassification, which cannot read a PEFT adapter dir.
+    if cfg.use_lora and cfg.merge_lora_on_save:
+        print("\n[Merging LoRA adapter into base weights]")
+        if cfg.load_in_4bit or cfg.load_in_8bit:
+            # A quantized base cannot be merged — reload in fp16/bf16, re-apply
+            # the trained adapter, then merge.
+            from peft import PeftModel
+            adapter_dir = os.path.join(output_dir, "adapter")
+            trainer.model.save_pretrained(adapter_dir)
+            base = AutoModelForSequenceClassification.from_pretrained(
+                cfg.model_name,
+                num_labels=num_labels,
+                id2label=id2label,
+                label2id=label2id,
+                trust_remote_code=True,
+                torch_dtype=torch.bfloat16 if cfg.bf16 else torch.float32,
+            )
+            base.config.pad_token_id = tokenizer.pad_token_id
+            merged = PeftModel.from_pretrained(base, adapter_dir).merge_and_unload()
+        else:
+            merged = trainer.model.merge_and_unload()
+        merged.config.pad_token_id = tokenizer.pad_token_id
+        merged.save_pretrained(output_dir, safe_serialization=True)
+    else:
+        trainer.save_model(output_dir)
+
     tokenizer.save_pretrained(output_dir)
     print(f"\n  Saved → {output_dir}")
 
     with open(os.path.join(output_dir, "eval_results.json"), "w") as f:
         json.dump(results, f, indent=2)
+
+    # ── Save CSV row ───────────────────────────────────────────────────────────
+    if cfg.results_csv:
+        dataset_name = cfg.dataset_name or Path(cfg.train_path).stem.replace("__train", "")
+        row = {
+            "model":      cfg.model_name,
+            "dataset":    dataset_name,
+            "num_train":  len(train_records),
+            "num_eval":   len(eval_records),
+            "macro_f1":   round(results.get("eval_macro_f1", 0), 4),
+            "micro_f1":   round(results.get("eval_micro_f1", 0), 4),
+            "accuracy":   round(results.get("eval_accuracy", 0), 4),
+            "timestamp":  datetime.now().isoformat(timespec="seconds"),
+        }
+        csv_path = Path(cfg.results_csv)
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        write_header = not csv_path.exists()
+        with open(csv_path, "a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=list(row.keys()))
+            if write_header:
+                writer.writeheader()
+            writer.writerow(row)
+        print(f"  CSV row → {cfg.results_csv}")
+
+    # ── Push to Hub ────────────────────────────────────────────────────────────
+    if cfg.push_to_hub and cfg.hub_model_id:
+        from huggingface_hub import HfApi
+        token = (cfg.hub_token or os.environ.get("HF_TOKEN")
+                 or os.environ.get("HUGGINGFACE_TOKEN"))
+        print(f"\n  Pushing to Hub: {cfg.hub_model_id} ...")
+        api = HfApi(token=token)
+        api.create_repo(cfg.hub_model_id, repo_type="model", exist_ok=True)
+        api.upload_folder(
+            folder_path=output_dir,
+            repo_id=cfg.hub_model_id,
+            repo_type="model",
+            ignore_patterns=["checkpoint-*", "adapter/*", "runs/*"],
+        )
+        print(f"  Done → https://huggingface.co/{cfg.hub_model_id}")

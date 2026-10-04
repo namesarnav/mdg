@@ -29,6 +29,9 @@ def main():
     parser.add_argument("--push-to-hub",  action="store_true")
     parser.add_argument("--hub-model-id", default=None)
     parser.add_argument("--results-csv",  default=None)
+    parser.add_argument("--head", choices=["cls", "seq2seq"], default="cls",
+                        help="cls = T5ForSequenceClassification head (required for "
+                             "TextAttack attacks); seq2seq = generative label decoding")
     parser.add_argument("--dataset-name", default=None)
     args = parser.parse_args()
 
@@ -40,7 +43,7 @@ def main():
 
     cfg = FinetuneConfig(
         model_name    = args.model,
-        model_type    = "encoder-decoder",
+        model_type    = "encoder" if args.head == "cls" else "encoder-decoder",
         train_path    = args.train,
         eval_path     = args.eval,
         label_space   = args.labels.split(","),

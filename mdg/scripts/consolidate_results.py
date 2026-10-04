@@ -43,6 +43,21 @@ def write_csv(path: Path, rows: list[dict]) -> None:
     print(f"Wrote {len(rows)} rows → {path}")
 
 
+def _model_key(name: str) -> str:
+    """Join key for a model name. The training CSV stores the full HuggingFace
+    id (meta-llama/Llama-3.2-1B) while the attack CSV stores the checkpoint
+    directory name (Llama-3.2-1B), so match on the last path segment."""
+    return name.strip().split("/")[-1]
+
+
+def _drop(clean, attacked) -> str:
+    """clean_f1 - attacked_f1, blank when either side is missing."""
+    try:
+        return str(round(float(clean) - float(attacked), 4))
+    except (TypeError, ValueError):
+        return ""
+
+
 def main() -> None:
     train_rows  = read_csv(TRAIN_CSV)
     attack_rows = read_csv(ATTACK_CSV)
@@ -54,25 +69,33 @@ def main() -> None:
     # Build lookup: (model, dataset) → train metrics
     train_lookup: dict[tuple, dict] = {}
     for row in train_rows:
-        key = (row.get("model", "").strip(), row.get("dataset", "").strip())
+        key = (_model_key(row.get("model", "")), row.get("dataset", "").strip())
         train_lookup[key] = row
 
     # Join
     joined: list[dict] = []
     for row in attack_rows:
-        key = (row.get("model", "").strip(), row.get("dataset", "").strip())
+        key = (_model_key(row.get("model", "")), row.get("dataset", "").strip())
         train = train_lookup.get(key, {})
         joined_row = {
             "model":               row.get("model", ""),
             "dataset":             row.get("dataset", ""),
             "recipe":              row.get("recipe", ""),
-            # Training metrics
+            # Training metrics (clean test split)
             "train_macro_f1":      train.get("macro_f1", ""),
+            "train_micro_f1":      train.get("micro_f1", ""),
             "train_accuracy":      train.get("accuracy", ""),
             "num_train":           train.get("num_train", ""),
             "num_eval":            train.get("num_eval", ""),
             # Attack metrics
             "num_examples":        row.get("num_examples", ""),
+            # F1 before vs. after this attack recipe
+            "clean_micro_f1":      row.get("clean_micro_f1", ""),
+            "clean_macro_f1":      row.get("clean_macro_f1", ""),
+            "attacked_micro_f1":   row.get("attacked_micro_f1", ""),
+            "attacked_macro_f1":   row.get("attacked_macro_f1", ""),
+            "micro_f1_drop":       _drop(row.get("clean_micro_f1"), row.get("attacked_micro_f1")),
+            "macro_f1_drop":       _drop(row.get("clean_macro_f1"), row.get("attacked_macro_f1")),
             "n_successful":        row.get("n_successful", ""),
             "n_failed":            row.get("n_failed", ""),
             "n_skipped":           row.get("n_skipped", ""),

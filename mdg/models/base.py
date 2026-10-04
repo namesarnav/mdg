@@ -153,7 +153,8 @@ def make_compute_metrics_encoder(label_space: List[str]):
         valid = labels != -1
         acc = accuracy_score(labels[valid], preds[valid])
         f1  = f1_score(labels[valid], preds[valid], average="macro", zero_division=0)
-        return {"accuracy": acc, "macro_f1": f1}
+        micro = f1_score(labels[valid], preds[valid], average="micro", zero_division=0)
+        return {"accuracy": acc, "macro_f1": f1, "micro_f1": micro}
     return compute_metrics
 
 
@@ -171,12 +172,13 @@ def make_compute_metrics_seq2seq(tokenizer, label2id: Dict[str, int]):
         label_ids = [label2id.get(l.strip().upper(), -1) for l in decoded_labels]
         valid = [i for i, (p, l) in enumerate(zip(pred_ids, label_ids)) if l != -1]
         if not valid:
-            return {"accuracy": 0.0, "macro_f1": 0.0}
+            return {"accuracy": 0.0, "macro_f1": 0.0, "micro_f1": 0.0}
         p_v = [pred_ids[i]  for i in valid]
         l_v = [label_ids[i] for i in valid]
         acc = accuracy_score(l_v, p_v)
         f1  = f1_score(l_v, p_v, average="macro", zero_division=0)
-        return {"accuracy": acc, "macro_f1": f1}
+        micro = f1_score(l_v, p_v, average="micro", zero_division=0)
+        return {"accuracy": acc, "macro_f1": f1, "micro_f1": micro}
     return compute_metrics
 
 
@@ -332,6 +334,7 @@ def run(cfg: FinetuneConfig) -> None:
             "num_train":  len(train_records),
             "num_eval":   len(eval_records),
             "macro_f1":   round(results.get("eval_macro_f1", 0), 4),
+            "micro_f1":   round(results.get("eval_micro_f1", 0), 4),
             "accuracy":   round(results.get("eval_accuracy", 0), 4),
             "timestamp":  datetime.now().isoformat(timespec="seconds"),
         }

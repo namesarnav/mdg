@@ -19,6 +19,8 @@ Usage:
         --model meta-llama/Llama-3.2-3B
 """
 import argparse
+from pathlib import Path
+
 from mdg.models.base_decoder import DecoderFinetuneConfig, run
 
 LLAMA_LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
@@ -30,7 +32,7 @@ def main():
     parser.add_argument("--eval",   required=True)
     parser.add_argument("--labels", default="YES,NO")
     parser.add_argument("--output", default="mdg/finetune/checkpoints")
-    parser.add_argument("--model",  default="meta-llama/Llama-3.2-3B")
+    parser.add_argument("--model",  default="meta-llama/Llama-3.2-1B")
     parser.add_argument("--epochs", type=int,   default=3)
     parser.add_argument("--batch",  type=int,   default=4)
     parser.add_argument("--lr",     type=float, default=2e-4)
@@ -38,7 +40,17 @@ def main():
     parser.add_argument("--no-lora",    action="store_true")
     parser.add_argument("--no-4bit",    action="store_true")
     parser.add_argument("--seed",   type=int,   default=42)
+    parser.add_argument("--push-to-hub",  action="store_true")
+    parser.add_argument("--hub-model-id", default=None)
+    parser.add_argument("--results-csv",  default=None)
+    parser.add_argument("--dataset-name", default=None)
     args = parser.parse_args()
+
+    hub_model_id = args.hub_model_id
+    if args.push_to_hub and not hub_model_id:
+        dataset_stem = Path(args.train).stem.replace("__train", "").replace("namesarnav_", "")
+        short_model  = args.model.split("/")[-1]
+        hub_model_id = f"namesarnav/{dataset_stem}-{short_model}"
 
     cfg = DecoderFinetuneConfig(
         model_name           = args.model,
@@ -54,6 +66,10 @@ def main():
         batch_size           = args.batch,
         learning_rate        = args.lr,
         seed                 = args.seed,
+        push_to_hub          = args.push_to_hub,
+        hub_model_id         = hub_model_id,
+        dataset_name         = args.dataset_name or "",
+        results_csv          = args.results_csv,
     )
     run(cfg)
 

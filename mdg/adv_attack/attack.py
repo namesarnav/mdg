@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import torch
+from sklearn.metrics import f1_score
 
 
 # All English attack recipes, ordered roughly fastest → slowest
@@ -123,7 +124,7 @@ def load_textattack_dataset(
     with open(jsonl_path) as f:
         records = [json.loads(l) for l in f if l.strip()]
 
-    if max_examples:
+    if max_examples and max_examples > 0:
         records = records[:max_examples]
 
     data = []
@@ -223,11 +224,26 @@ def run_recipe(
 
     print(f"streaming → {jsonl_path.name} ", end="", flush=True)
 
+    golds: List[int] = []
+    clean_preds: List[int] = []
+    attacked_preds: List[int] = []
+
     with open(jsonl_path, "w") as fout:
         for result in results:
             rtype = type(result).__name__
+            gold = getattr(result.original_result, "ground_truth_output", None)
+            clean_pred = result.original_result.output
+            # Post-attack prediction: the perturbed output when the recipe produced
+            # one, otherwise the model's unchanged prediction on the original text.
+            pert_res = getattr(result, "perturbed_result", None)
+            attacked_pred = pert_res.output if pert_res is not None else clean_pred
+            if gold is not None:
+                golds.append(int(gold))
+                clean_preds.append(int(clean_pred))
+                attacked_preds.append(int(attacked_pred))
             entry = {
                 "result_type":   rtype,
+                "ground_truth":  gold,
                 "original_text": result.original_result.attacked_text.text,
                 "original_label": result.original_result.output,
                 "perturbed_text": (
@@ -264,9 +280,20 @@ def run_recipe(
     asr = n_successful / attacked if attacked > 0 else 0.0
     avg_queries = total_queries / n_total if n_total else 0.0
 
+    def _f1(gold, pred, average):
+        if not gold:
+            return 0.0
+        return round(float(f1_score(gold, pred, average=average, zero_division=0)), 4)
+
     summary = {
         "recipe":              recipe_name,
         "num_examples":        n_total,
+        # F1 on the model's predictions over the ORIGINAL (unperturbed) texts
+        "clean_micro_f1":      _f1(golds, clean_preds, "micro"),
+        "clean_macro_f1":      _f1(golds, clean_preds, "macro"),
+        # F1 after this recipe's perturbations — the robustness number
+        "attacked_micro_f1":   _f1(golds, attacked_preds, "micro"),
+        "attacked_macro_f1":   _f1(golds, attacked_preds, "macro"),
         "n_successful":        n_successful,
         "n_failed":            n_failed,
         "n_skipped":           n_skipped,
@@ -280,6 +307,8 @@ def run_recipe(
 
     print(
         f"ASR={asr:.1%}  "
+        f"microF1 {summary['clean_micro_f1']:.3f}→{summary['attacked_micro_f1']:.3f}  "
+        f"macroF1 {summary['clean_macro_f1']:.3f}→{summary['attacked_macro_f1']:.3f}  "
         f"(success={n_successful} failed={n_failed} skipped={n_skipped})  "
         f"avg_queries={avg_queries:.0f}  → {jsonl_path.name}"
     )
@@ -386,6 +415,10 @@ def run(
                     "dataset":             dataset_label,
                     "recipe":              summary["recipe"],
                     "num_examples":        summary["num_examples"],
+                    "clean_micro_f1":      summary["clean_micro_f1"],
+                    "clean_macro_f1":      summary["clean_macro_f1"],
+                    "attacked_micro_f1":   summary["attacked_micro_f1"],
+                    "attacked_macro_f1":   summary["attacked_macro_f1"],
                     "n_successful":        summary["n_successful"],
                     "n_failed":            summary["n_failed"],
                     "n_skipped":           summary["n_skipped"],

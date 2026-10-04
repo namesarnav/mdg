@@ -73,6 +73,42 @@ Both stages are **resumable**: re-running skips any pair with an existing
 checkpoint (train) or `all_summaries.json` (attack), so just resubmit after a
 timeout or node failure.
 
+## Running everything at once with GNU parallel
+
+A Slurm **job array already runs all 22 tasks concurrently**, spread across as
+many nodes as the scheduler gives you — that is the fastest option, and
+`submit_all.sh` is what you want when Slurm is available.
+
+Use `run_parallel.sh` when you hold one interactive multi-GPU node, or are on a
+machine without a scheduler. It packs the grid onto the node you are on, one
+task per GPU:
+
+```bash
+srun --gres=gpu:4 --cpus-per-task=32 --mem=200G --time=8:00:00 --pty /bin/bash
+cd /scratch/$USER/mdg
+
+bash mdg/hpc/run_parallel.sh train     # all 22 training runs, 4 at a time
+bash mdg/hpc/run_parallel.sh attack    # all 22 attack runs
+bash mdg/hpc/run_parallel.sh all       # train → attack → consolidate
+JOBS=8 bash mdg/hpc/run_parallel.sh attack   # override the concurrency
+```
+
+Concurrency defaults to the GPU count, and slot *N* is pinned to GPU *N-1* via
+`CUDA_VISIBLE_DEVICES`. **Running more tasks than GPUs makes them share VRAM and
+usually ends in OOM** — only raise `JOBS` above the GPU count for attack recipes
+whose search is CPU-bound.
+
+One failing pair never kills the grid (`--halt never`). Every task writes
+`/scratch/$USER/mdg-logs/<stage>-task<N>.log`, and a `--joblog` records exit
+codes, so a re-run skips finished work and you can retry only the failures:
+
+```bash
+parallel --joblog /scratch/$USER/mdg-logs/parallel-attack.joblog --resume-failed ...
+```
+
+If `parallel` is missing, try `module load parallel`; the script prints an
+`xargs -P` fallback if that fails.
+
 ## Outputs
 
 | Path | Contents |

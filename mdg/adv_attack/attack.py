@@ -189,6 +189,8 @@ def run_recipe(
     num_examples: int,
     output_dir: Path,
     query_budget: Optional[int],
+    model_name: str = "",
+    dataset_label: str = "",
 ) -> Optional[Dict]:
     """
     Run one attack recipe. Saves per-example JSONL and a summary JSON.
@@ -237,7 +239,7 @@ def run_recipe(
     attacked_preds: List[int] = []
 
     with open(jsonl_path, "w") as fout:
-        for result in results:
+        for idx, result in enumerate(results):
             rtype = type(result).__name__
             gold = getattr(result.original_result, "ground_truth_output", None)
             clean_pred = result.original_result.output
@@ -250,6 +252,12 @@ def run_recipe(
                 clean_preds.append(int(clean_pred))
                 attacked_preds.append(int(attacked_pred))
             entry = {
+                # Self-describing: these files get merged across machines, so
+                # every row carries what produced it.
+                "idx":           idx,
+                "dataset":       dataset_label,
+                "model":         model_name,
+                "recipe":        recipe_name,
                 "result_type":   rtype,
                 "ground_truth":  gold,
                 "original_text": result.original_result.attacked_text.text,
@@ -426,6 +434,8 @@ def run(
             num_examples=len(raw_data),
             output_dir=run_dir,
             query_budget=query_budget,
+            model_name=model_name,
+            dataset_label=dataset_label,
         )
         if summary:
             all_summaries.append(summary)

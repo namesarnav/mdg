@@ -31,6 +31,49 @@ Persist results between sessions, since the VM is wiped: keep the repo on Drive
 (Colab), save `/kaggle/working` as a Kaggle Dataset, or commit the small JSON/CSV
 outputs back to git after each session.
 
+## Many-core CPU servers (no GPU)
+
+BERT-size inference runs fine on CPU, and attacks are embarrassingly parallel.
+Core count and RAM decide throughput — the model itself needs ~1GB.
+
+```bash
+bash mdg/hpc/setup_vm.sh
+DRY_RUN=1 bash mdg/hpc/run_parallel.sh cells   # check the sizing
+bash mdg/hpc/run_parallel.sh cells             # run
+```
+
+The `cells` stage fans out over **(task, recipe) pairs — 396 units**, not 22
+tasks, which is what keeps a big box busy. Workers are sized automatically as
+`min(cores / THREADS_PER_JOB, RAM / MEM_PER_WORKER_GB)`; on a 128-core/256GB VM
+that is ~85 workers, **limited by memory** — each worker is its own
+python+torch+model copy at ~2-3GB. Override with `JOBS=`, `THREADS_PER_JOB=` or
+`MEM_PER_WORKER_GB=`.
+
+### Several machines
+
+`SHARD="i/n"` splits the cell list round-robin, so each machine takes a disjoint
+slice with a similar mix of big and small datasets:
+
+```bash
+SHARD=0/3 bash mdg/hpc/run_parallel.sh cells   # VM 1
+SHARD=1/3 bash mdg/hpc/run_parallel.sh cells   # VM 2
+SHARD=2/3 bash mdg/hpc/run_parallel.sh cells   # VM 3
+```
+
+Train with few workers and many threads each (training *does* scale across
+threads, unlike inference):
+
+```bash
+ONLY_TASKS="0 1 2 3" JOBS=4 THREADS_PER_JOB=32 bash mdg/hpc/run_parallel.sh train
+```
+
+Training pushes each model to the Hub, and the attack stage falls back to the
+Hub copy when there is no local checkpoint — so machines do not need to share a
+filesystem or retrain each other's models.
+
+Merge results at the end by rsyncing each machine's `mdg/adv_attack/results/`
+and `attack_results.csv` into one place, then running the consolidation.
+
 ## Google Colab
 
 Works, but Colab sessions are capped (~12h on Pro, less on free, and idle

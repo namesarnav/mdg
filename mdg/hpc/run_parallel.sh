@@ -163,6 +163,21 @@ run_cells() {
     done
   done
 
+  # SHARD="i/n" keeps several machines on disjoint slices of the same grid.
+  # Round-robin over the cell list, so each shard gets a similar mix of big and
+  # small datasets rather than one machine inheriting all of natquest.
+  if [ -n "${SHARD:-}" ]; then
+    local sidx="${SHARD%%/*}" scnt="${SHARD##*/}"
+    if ! [ "$sidx" -ge 0 ] 2>/dev/null || ! [ "$scnt" -gt 0 ] 2>/dev/null || [ "$sidx" -ge "$scnt" ]; then
+      echo "[ERROR] SHARD must be i/n with 0 <= i < n (got '$SHARD')"; return 2
+    fi
+    awk -v i="$sidx" -v n="$scnt" '(NR-1) % n == i' "$cells" > "$cells.shard"
+    mv "$cells.shard" "$cells"
+    pending=$(wc -l < "$cells" | tr -d ' ')
+    echo ""
+    echo "  SHARD   : $sidx of $scnt → $pending cells on this machine"
+  fi
+
   echo ""
   echo "========================================================"
   echo "  STAGE   : attack (cell-level)"

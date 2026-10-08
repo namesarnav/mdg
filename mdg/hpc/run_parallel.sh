@@ -15,6 +15,9 @@
 # spreads the same 22 tasks across MANY nodes, while this packs them onto one.
 # Use this when you hold an interactive multi-GPU node, or on a box without Slurm.
 #
+# Check the sizing before committing a big machine:
+#   DRY_RUN=1 bash mdg/hpc/run_parallel.sh cells
+#
 # Progress is written to a --joblog, so a re-run resumes:
 #   parallel --joblog <file> --resume-failed ...
 set -uo pipefail
@@ -52,9 +55,22 @@ detect_gpus() {
   fi
 }
 detect_cores() {
-  if command -v nproc >/dev/null 2>&1; then nproc
+  # Respect a Slurm allocation if we are inside one, else take the whole box.
+  if [ -n "${SLURM_CPUS_PER_TASK:-}" ]; then echo "$SLURM_CPUS_PER_TASK"
+  elif [ -n "${SLURM_CPUS_ON_NODE:-}" ]; then echo "$SLURM_CPUS_ON_NODE"
+  elif command -v nproc >/dev/null 2>&1; then nproc
   elif [ "$(uname)" = "Darwin" ]; then sysctl -n hw.ncpu
   else echo 4; fi
+}
+
+detect_mem_gb() {
+  if [ -r /proc/meminfo ]; then
+    awk '/MemTotal/{printf "%d", $2/1048576}' /proc/meminfo
+  elif [ "$(uname)" = "Darwin" ]; then
+    echo $(( $(sysctl -n hw.memsize) / 1073741824 ))
+  else
+    echo 8
+  fi
 }
 NGPU="$(detect_gpus)"
 NCORE="$(detect_cores)"
@@ -62,11 +78,21 @@ NCORE="$(detect_cores)"
 # CPU-only box (no GPU): run many single-threaded workers rather than one
 # multi-threaded process. BERT-size inference does not scale well across many
 # threads, but N independent attacks across N cores scale almost linearly.
-THREADS_PER_JOB="${THREADS_PER_JOB:-2}"
+# 1 thread per worker maximises throughput per GB: BERT-size inference barely
+# scales across threads, so more concurrent attacks beats faster single ones.
+THREADS_PER_JOB="${THREADS_PER_JOB:-1}"
+# Each worker is its own python + torch + model copy. Measured ~2-3GB RSS;
+# 3GB is the safe planning figure. This is what caps a 256-core/512GB box.
+MEM_PER_WORKER_GB="${MEM_PER_WORKER_GB:-3}"
 if [ "${NGPU:-0}" -lt 1 ]; then
   CPU_MODE=1
-  JOBS="${JOBS:-$(( NCORE / THREADS_PER_JOB ))}"
-  [ "${JOBS:-0}" -lt 1 ] && JOBS=1
+  MEM_GB="$(detect_mem_gb)"
+  BY_CORES=$(( NCORE / THREADS_PER_JOB ))
+  BY_MEM=$(( MEM_GB / MEM_PER_WORKER_GB ))
+  AUTO_JOBS=$(( BY_CORES < BY_MEM ? BY_CORES : BY_MEM ))
+  [ "$AUTO_JOBS" -lt 1 ] && AUTO_JOBS=1
+  JOBS="${JOBS:-$AUTO_JOBS}"
+  LIMITED_BY=$([ "$BY_CORES" -le "$BY_MEM" ] && echo cores || echo memory)
   export OMP_NUM_THREADS="$THREADS_PER_JOB"
   export MKL_NUM_THREADS="$THREADS_PER_JOB"
   export TOKENIZERS_PARALLELISM=false
@@ -84,8 +110,9 @@ run_stage() {
   echo "  STAGE   : $stage"
   echo "  TASKS   : $N_JOBS  ($N_MODELS models × $N_DATASETS datasets)"
   if [ "$CPU_MODE" = "1" ]; then
-    echo "  HARDWARE: CPU-only — $NCORE cores, $THREADS_PER_JOB threads/worker"
-    echo "  PARALLEL: $JOBS workers at a time"
+    echo "  HARDWARE: CPU-only — ${NCORE} cores, ${MEM_GB}GB RAM"
+    echo "  SIZING  : cores allow $BY_CORES, memory allows $BY_MEM (~${MEM_PER_WORKER_GB}GB/worker)"
+    echo "  PARALLEL: $JOBS workers (limited by $LIMITED_BY), $THREADS_PER_JOB thread(s) each"
   else
     echo "  PARALLEL: $JOBS at a time across $NGPU GPU(s)"
   fi
@@ -140,9 +167,20 @@ run_cells() {
   echo "========================================================"
   echo "  STAGE   : attack (cell-level)"
   echo "  PENDING : $pending cells of $(( N_JOBS * ${#RECIPE_LIST[@]} ))"
-  echo "  PARALLEL: $JOBS workers"
+  if [ "$CPU_MODE" = "1" ]; then
+    echo "  HARDWARE: CPU-only — ${NCORE} cores, ${MEM_GB}GB RAM"
+    echo "  SIZING  : cores allow $BY_CORES, memory allows $BY_MEM (~${MEM_PER_WORKER_GB}GB/worker)"
+    echo "  PARALLEL: $JOBS workers (limited by $LIMITED_BY), $THREADS_PER_JOB thread(s) each"
+  else
+    echo "  PARALLEL: $JOBS workers across $NGPU GPU(s)"
+  fi
   echo "========================================================"
   [ "$pending" -eq 0 ] && { echo "  nothing left to do"; return 0; }
+  if [ -n "${DRY_RUN:-}" ]; then
+    echo "  DRY_RUN set — not launching. First 5 cells:"
+    head -5 "$cells" | sed 's/^/    /'
+    return 0
+  fi
 
   if [ "$HAVE_PARALLEL" = "1" ]; then
     parallel --jobs "$JOBS" --joblog "$joblog" --halt never --line-buffer --colsep ' ' \

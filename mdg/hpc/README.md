@@ -1,188 +1,91 @@
-# Running MDG on NYU HPC (Greene or Torch)
+# Running the MDG attack grid
 
-Fine-tunes **t5-base** and **meta-llama/Llama-3.2-1B** on all 11 causal
-classification datasets, pushes each model to the HuggingFace Hub, then attacks
-every model with every TextAttack recipe on every dataset and consolidates
-everything into one CSV.
+Fine-tunes **bert-base-uncased** and **roberta-base** on 11 causal
+classification datasets, pushes each to the HuggingFace Hub, then runs **every
+TextAttack recipe** against every model on **every data point** of every
+dataset, and consolidates everything into one CSV.
 
-Grid: **2 models × 11 datasets = 22** training runs, then 22 attack runs ×
-18 recipes = **396 model/dataset/recipe combinations**.
+Scale: 365,444 data points × 18 recipes × 2 models = **13.2M example-attacks**
+across **396 cells** (dataset × model × recipe).
 
-## Chipping away on free GPU hours (Kaggle / Colab)
+## Your own cluster or VMs (no scheduler) — start here
 
-No cluster and no budget? The grid is fully resumable at **recipe** granularity
-(396 units), so you can work through it across many short sessions.
-
-**Kaggle is the better free option**: 30 GPU-hours/week (P100 or 2×T4), 12-hour
-sessions, versus Colab's tighter free tier.
-
-```bash
-bash mdg/hpc/status.sh          # what is done, what is left
-bash mdg/hpc/run_budget.sh 11   # work for 11h, then stop cleanly
-```
-
-`run_budget.sh` goes **cheapest-first** — smallest dataset, fastest recipe — and
-runs attacks one recipe at a time, so a short session completes whole units
-rather than stalling halfway through `natquest`. Re-run it next session and it
-picks up exactly where it stopped. `status.sh` prints a per-pair progress bar
-and the overall percentage.
-
-Persist results between sessions, since the VM is wiped: keep the repo on Drive
-(Colab), save `/kaggle/working` as a Kaggle Dataset, or commit the small JSON/CSV
-outputs back to git after each session.
-
-## Many-core CPU servers (no GPU)
-
-BERT-size inference runs fine on CPU, and attacks are embarrassingly parallel.
-Core count and RAM decide throughput — the model itself needs ~1GB.
-
-```bash
-bash mdg/hpc/setup_vm.sh
-DRY_RUN=1 bash mdg/hpc/run_parallel.sh cells   # check the sizing
-bash mdg/hpc/run_parallel.sh cells             # run
-```
-
-The `cells` stage fans out over **(task, recipe) pairs — 396 units**, not 22
-tasks, which is what keeps a big box busy. Workers are sized automatically as
-`min(cores / THREADS_PER_JOB, RAM / MEM_PER_WORKER_GB)`; on a 128-core/256GB VM
-that is ~85 workers, **limited by memory** — each worker is its own
-python+torch+model copy at ~2-3GB. Override with `JOBS=`, `THREADS_PER_JOB=` or
-`MEM_PER_WORKER_GB=`.
-
-### Several machines
-
-`SHARD="i/n"` splits the cell list round-robin, so each machine takes a disjoint
-slice with a similar mix of big and small datasets:
-
-```bash
-SHARD=0/3 bash mdg/hpc/run_parallel.sh cells   # VM 1
-SHARD=1/3 bash mdg/hpc/run_parallel.sh cells   # VM 2
-SHARD=2/3 bash mdg/hpc/run_parallel.sh cells   # VM 3
-```
-
-Train with few workers and many threads each (training *does* scale across
-threads, unlike inference):
-
-```bash
-ONLY_TASKS="0 1 2 3" JOBS=4 THREADS_PER_JOB=32 bash mdg/hpc/run_parallel.sh train
-```
-
-Training pushes each model to the Hub, and the attack stage falls back to the
-Hub copy when there is no local checkpoint — so machines do not need to share a
-filesystem or retrain each other's models.
-
-Merge results at the end. The consolidation walks every source — summary JSONs,
-the appended `attack_results.csv`, older per-recipe CSVs under
-`adv_attack/legacy/`, and each checkpoint's `eval_results.json` — dedupes by
-(model, dataset, recipe) and writes one row each:
-
-```bash
-python -m mdg.scripts.consolidate_results \
-  --extra /path/to/vm2/results /path/to/vm3/results
-```
-
-`--extra` folds in results copied from other machines without moving them into
-place first. Rows carry a `source` column and a `perturbed_file` path, so you
-can see where each number came from and which have perturbed data on disk.
-
-## Google Colab
-
-Works, but Colab sessions are capped (~12h on Pro, less on free, and idle
-disconnects), so the grid has to be chipped away at rather than run in one go.
-Runs resume **per recipe**, so a dropped session loses at most the recipe that
-was in flight.
-
-Keep outputs on Drive so nothing is lost when the VM is recycled:
-
-```python
-from google.colab import drive; drive.mount('/content/drive')
-%cd /content/drive/MyDrive
-!git clone https://github.com/namesarnav/mdg.git || (cd mdg && git pull)
-%cd /content/drive/MyDrive/mdg
-```
-
-Colab already ships torch built for its GPU — do **not** reinstall it:
-
-```python
-!pip install -q "transformers>=4.46,<5" "textattack>=0.3.10" peft accelerate \
-    "datasets>=3.0,<4" sentencepiece scikit-learn
-```
-
-Then run tasks one at a time, re-running the cell after each disconnect:
-
-```python
-import os
-os.environ["MDG_RUNTIME"] = "direct"      # no container on Colab
-os.environ["PROJECT"]     = "/content/drive/MyDrive/mdg"
-os.environ["MDG_VENV"]    = ""            # use Colab's own python
-
-!bash mdg/hpc/run_one.sh train 0          # task 0..21
-!bash mdg/hpc/run_one.sh attack 0
-```
-
-Finished pairs and finished recipes are skipped automatically, so re-running the
-same cell always continues rather than restarting.
-
-**Reality check:** a T4 is several times slower than an A100, and you get one
-GPU instead of 22 in parallel. The full uncapped grid is not achievable on Colab
-in any reasonable calendar time — use it to work through the small datasets
-(`counterbench`, `ac-reason`, `bbh-causal-judgement`), or cap with
-`NUM_EXAMPLES=200` per recipe.
-
-## No cluster? Run on a plain GPU VM
-
-The scripts detect their runtime: **container** (Singularity + overlay, on an
-HPC cluster) or **direct** (a normal conda env, anywhere else). On any Linux box
-with an NVIDIA driver — GCP, RunPod, Lambda, Vast, a lab machine:
+Per machine:
 
 ```bash
 git clone https://github.com/namesarnav/mdg.git ~/mdg && cd ~/mdg
-bash mdg/hpc/setup_vm.sh                 # conda env, no container
+bash mdg/hpc/setup_vm.sh                  # conda env; no container needed
 echo 'hf_xxx' > ~/.hf_token && chmod 600 ~/.hf_token
-
-bash mdg/hpc/run_one.sh train 0          # smoke test
-bash mdg/hpc/run_parallel.sh all         # whole grid across this box's GPUs
+bash mdg/hpc/02_build_all_splits.sh       # build the <stem>__all.jsonl files
 ```
 
-No Slurm needed — `run_parallel.sh` is the scheduler, one task per GPU. Force a
-runtime with `MDG_RUNTIME=direct` or `MDG_RUNTIME=container` if detection guesses
-wrong.
-
-## One-time setup (HPC cluster)
+Train (few workers, many threads each — training scales across threads):
 
 ```bash
-ssh <netid>@greene.hpc.nyu.edu        # or: <netid>@login.torch.hpc.nyu.edu
-
-# 1. Clone to /scratch (NOT /home — its default quota is 30,000 inodes)
-git clone git@github.com:namesarnav/mdg.git /scratch/$USER/mdg
-cd /scratch/$USER/mdg
-
-# 2. HuggingFace token — needed for gated Llama AND for pushing models
-#    Get one at https://huggingface.co/settings/tokens (needs write access),
-#    and accept the license at https://huggingface.co/meta-llama/Llama-3.2-1B
-echo 'hf_xxxxxxxxxxxxxxxxx' > ~/.hf_token && chmod 600 ~/.hf_token
-
-# 3. Build the container environment (~20 min, on a compute node)
-srun --cpus-per-task=4 --mem=32G --time=2:00:00 --pty /bin/bash
-bash mdg/hpc/00_setup_env.sh
-exit
+ONLY_TASKS="0 1 2 3 4 5 6" JOBS=7 THREADS_PER_JOB=16 bash mdg/hpc/run_parallel.sh train
 ```
 
-`env.sh` finds the container and overlay images automatically — Greene keeps
-them under `/scratch/work/public/`, Torch under `/share/apps/`. If setup reports
-that it found neither, locate them yourself and pass them in:
+Attack (many single-threaded workers — inference does not scale across threads):
 
 ```bash
-ls /share/apps/images/ /scratch/work/public/singularity/ 2>/dev/null | grep -i cuda
-ls /share/apps/overlay-fs-ext3/ /scratch/work/public/overlay-fs-ext3/ 2>/dev/null
-
-SIF=/path/to/cuda.sif OVERLAY_SRC=/path/to/overlay-15GB-500K.ext3.gz \
-  bash mdg/hpc/00_setup_env.sh
+DRY_RUN=1 bash mdg/hpc/run_parallel.sh cells      # check the sizing first
+SHARD=0/3 nohup bash mdg/hpc/run_parallel.sh cells > ~/attack.log 2>&1 &
 ```
 
-Run setup from a login or compute node, **not** a data transfer node (`dtn*`).
+`SHARD=i/n` gives each machine a disjoint slice. Workers are sized
+automatically from cores and RAM — on 144 cores / 512GB that is ~144 workers.
+Everything resumes: finished cells are skipped, so just re-run after any
+interruption.
 
-### Check you can get a GPU first
+Monitor with `bash mdg/hpc/status.sh`, merge at the end with
+`python -m mdg.scripts.consolidate_results --extra /path/to/other/results`.
+
+## Scripts
+
+| File | Purpose |
+|---|---|
+| `setup_vm.sh` | Build the conda env on any Linux box (no Slurm, no Singularity) |
+| `02_build_all_splits.sh` | Concatenate train+test+validation into `<stem>__all.jsonl` |
+| `run_parallel.sh` | `train`, `cells` (attack), or `all` — the main runner |
+| `run_one.sh` | One (model × dataset) task; shared by every path |
+| `run_budget.sh` | Work cheapest-first for N hours then stop (capped sessions) |
+| `status.sh` | Progress: trained pairs, recipes done, overall % |
+| `migrate_results.sh` | Fold older result layouts into the canonical one |
+| `matrix.sh` | The grid: datasets × models. Edit here to change scope |
+| `check_access.sh` | Slurm pre-flight (NYU HPC only) |
+| `00_setup_env.sh` | Singularity overlay env (NYU HPC only) |
+| `*.sbatch`, `submit_all.sh` | Slurm job arrays (NYU HPC only) |
+
+## Knobs
+
+| Variable | Default | Effect |
+|---|---|---|
+| `ATTACK_SPLIT` | `all` | `all` = every data point; `holdout` = the untrained split only |
+| `NUM_EXAMPLES` | `-1` | Examples per recipe; `-1` is every one |
+| `QUERY_BUDGET` | unset | Cap model queries per example |
+| `JOBS` | auto | Concurrent workers |
+| `THREADS_PER_JOB` | `1` | Threads per worker |
+| `MEM_PER_WORKER_GB` | `3` | Planning figure for worker sizing |
+| `SHARD` | unset | `i/n` — this machine's slice of the cells |
+| `ONLY_TASKS` | unset | Restrict to these task ids |
+| `RECIPES` | unset | Restrict to these recipe names |
+| `DRY_RUN` | unset | Print sizing and pending work, launch nothing |
+
+## Outputs
+
+| Path | Contents |
+|---|---|
+| `mdg/finetune/checkpoints/<stem>/<model>/` | Trained model |
+| `mdg/finetune/train_results.csv` | Per model × dataset: micro + macro F1, accuracy |
+| `mdg/adv_attack/results/<split>/<model>/<recipe>.jsonl` | **Every attacked example**: ground truth, original and perturbed text + predictions, query count |
+| `mdg/adv_attack/results/<split>/<model>/<recipe>_summary.json` | ASR, clean and attacked micro + macro F1 |
+| `mdg/results/consolidated.csv` | **Final CSV** — one row per cell, every metric |
+
+---
+
+# NYU HPC (Greene / Torch) — only if you use it
+
+## Check you can get a GPU first
 
 ```bash
 bash mdg/hpc/check_access.sh            # or: bash mdg/hpc/check_access.sh a100

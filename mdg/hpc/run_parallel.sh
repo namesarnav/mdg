@@ -151,11 +151,17 @@ run_cells() {
                 /^[[:space:]]*\("/{ if (match($0, /"[^"]+"/)) print substr($0, RSTART+1, RLENGTH-2) }' \
                 "$PROJECT/mdg/adv_attack/attack.py")
 
-  local i recipe pending=0
+  local i recipe pending=0 hub_only=""
   for ((i=0; i<N_JOBS; i++)); do
     resolve_task "$i"
     [ -n "${ONLY_TASKS:-}" ] && ! grep -qw "$i" <<< "$ONLY_TASKS" && continue
-    [ -f "$PROJECT/mdg/finetune/checkpoints/$STEM/$MODEL_NAME/config.json" ] || continue
+    # A pair trained on ANOTHER machine has no local checkpoint; run_one.sh
+    # falls back to the Hub copy, so include it anyway. REQUIRE_LOCAL=1 limits
+    # the run to locally-trained pairs.
+    if [ ! -f "$PROJECT/mdg/finetune/checkpoints/$STEM/$MODEL_NAME/config.json" ]; then
+      [ -n "${REQUIRE_LOCAL:-}" ] && continue
+      hub_only="$hub_only $DATASET_STEM/$MODEL_NAME"
+    fi
     for recipe in "${RECIPE_LIST[@]}"; do
       [ -f "$PROJECT/mdg/adv_attack/results/${STEM}/${MODEL_NAME}/${recipe}_summary.json" ] && continue
       echo "$i $recipe" >> "$cells"
@@ -176,6 +182,13 @@ run_cells() {
     pending=$(wc -l < "$cells" | tr -d ' ')
     echo ""
     echo "  SHARD   : $sidx of $scnt → $pending cells on this machine"
+  fi
+
+  if [ -n "$hub_only" ]; then
+    echo ""
+    echo "  NOTE    : no local checkpoint for:$hub_only"
+    echo "            these will load from the HuggingFace Hub — make sure the"
+    echo "            machine that trains them has finished pushing."
   fi
 
   echo ""

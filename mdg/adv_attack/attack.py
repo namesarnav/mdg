@@ -393,6 +393,15 @@ def run(
         dataset_path, label_field, all_text_fields, label2id, num_examples
     )
     print(f"  Loaded {len(raw_data)} examples for attack\n")
+    if not raw_data:
+        raise SystemExit(
+            f"[FAIL] No examples loaded from {dataset_path}.\n"
+            f"       label field {label_field!r} and text fields {all_text_fields} "
+            f"matched nothing.\n"
+            f"       Fields present: "
+            f"{sorted(json.loads(open(dataset_path).readline()).keys())}\n"
+            f"       Pass --label-field / --text-fields to match the file."
+        )
 
     ta_dataset = textattack.datasets.Dataset(raw_data, label_names=label_space_upper)
 

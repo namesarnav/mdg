@@ -88,11 +88,14 @@ case "$STAGE" in
       echo "[INFO] No local checkpoint — using Hub model $HUB_ID"
       MODEL_REF="$HUB_ID"
     fi
-    # Attack the split NOT used for training.
-    if [ "$TRAIN_COUNT" -ge "$TEST_COUNT" ]; then
-      ATTACK_FILE="$TEST_FILE"
-    else
-      ATTACK_FILE="$TRAIN_FILE"
+    # ATTACK_STEM (matrix.sh) decides the file: every data point by default
+    # (<stem>__all.jsonl), or the held-out split with ATTACK_SPLIT=holdout.
+    ATTACK_FILE="${DATA_DIR}/${ATTACK_STEM}.jsonl"
+    if [ ! -f "$PROJECT/$ATTACK_FILE" ]; then
+      echo "[FAIL] Missing attack file: $ATTACK_FILE"
+      [ "${ATTACK_SPLIT:-all}" = "all" ] && \
+        echo "       Build it with: bash mdg/hpc/02_build_all_splits.sh"
+      exit 1
     fi
     BUDGET_ARG=""
     [ -n "$QUERY_BUDGET" ] && BUDGET_ARG="--query-budget $QUERY_BUDGET"
@@ -102,9 +105,13 @@ case "$STAGE" in
     [ -n "${RECIPES:-}" ] && RECIPE_ARG="--recipes ${RECIPES}"
     echo "  attack split=$(basename $ATTACK_FILE)  examples=${NUM_EXAMPLES/-1/ALL}  budget=${QUERY_BUDGET:-unlimited}"
 
+    # Files from prepare_finetune_data are normalised to {text, label}; do not
+    # let attack.py guess a per-dataset field name from the filename.
     in_container "python -m mdg.adv_attack.attack \
       --model        '$MODEL_REF' \
       --dataset      '$ATTACK_FILE' \
+      --label-field  label \
+      --text-fields  text \
       --output-dir   '$ATTACK_OUT' \
       --label-space  ${LABELS//,/ } \
       --num-examples $NUM_EXAMPLES \

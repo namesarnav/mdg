@@ -33,8 +33,18 @@ N_DATASETS=${#DATASETS[@]}
 N_MODELS=${#MODELS[@]}
 N_JOBS=$(( N_DATASETS * N_MODELS ))
 
-# Which split is attacked for the current $STEM: the smaller of train/test.
+# Which file is attacked for the current $STEM.
+#   ATTACK_SPLIT=all      every data point: train + test + validation (default)
+#   ATTACK_SPLIT=holdout  only the split not used for training (the smaller one)
+# attack.py names its output directory after this file, and every done-marker
+# derives from it, so the two modes keep separate results.
+ATTACK_SPLIT="${ATTACK_SPLIT:-all}"
+
 attacked_stem() {
+  if [ "$ATTACK_SPLIT" = "all" ]; then
+    echo "${STEM}__all"
+    return
+  fi
   local tr="${PROJECT:-.}/mdg/finetune/data/${STEM}__train.jsonl"
   local te="${PROJECT:-.}/mdg/finetune/data/${STEM}__test.jsonl"
   local trn=0 ten=0

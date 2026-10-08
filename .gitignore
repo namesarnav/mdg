@@ -26,6 +26,10 @@ results/
 !mdg/adv_attack/results/**/all_summaries.json
 mdg/adv_attack/results/**/*.jsonl
 
+# Derived: concatenation of the committed splits, rebuilt by
+# mdg/hpc/02_build_all_splits.sh (corr2cause alone is ~208k rows).
+mdg/finetune/data/*__all.jsonl
+
 # Jupyter
 .ipynb_checkpoints/
 

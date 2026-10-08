@@ -4,7 +4,19 @@
 # Edit PROJECT if you clone the repo somewhere other than /scratch/$USER/mdg.
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-export PROJECT="${PROJECT:-/scratch/$USER/mdg}"
+# Repo root. Default to the checkout this file lives in (mdg/hpc/env.sh ->
+# two levels up), which is right everywhere; /scratch/$USER/mdg is only used
+# when that checkout cannot be located.
+_mdg_repo_root() {
+  local here
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd)"
+  if [ -n "$here" ] && [ -d "$here/mdg/hpc" ]; then
+    echo "$here"
+  else
+    echo "/scratch/$USER/mdg"
+  fi
+}
+export PROJECT="${PROJECT:-$(_mdg_repo_root)}"
 export OVERLAY="${OVERLAY:-/scratch/$USER/mdg-env/overlay-15GB-500K.ext3}"
 
 # ── Cluster image discovery ───────────────────────────────────────────────────

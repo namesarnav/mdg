@@ -1,0 +1,11 @@
+[
+  {
+    "recipe": "PWWSRen2019",
+    "num_examples": 330,
+    "n_successful": 227,
+    "n_failed": 51,
+    "n_skipped": 52,
+    "attack_success_rate": 0.8165,
+    "avg_queries": 196.09
+  }
+]

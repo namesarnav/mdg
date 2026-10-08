@@ -163,7 +163,7 @@ run_cells() {
       hub_only="$hub_only $DATASET_STEM/$MODEL_NAME"
     fi
     for recipe in "${RECIPE_LIST[@]}"; do
-      [ -f "$PROJECT/mdg/adv_attack/results/${STEM}/${MODEL_NAME}/${recipe}_summary.json" ] && continue
+      [ -f "$PROJECT/mdg/adv_attack/results/${ATTACK_STEM}/${MODEL_NAME}/${recipe}_summary.json" ] && continue
       echo "$i $recipe" >> "$cells"
       pending=$(( pending + 1 ))
     done

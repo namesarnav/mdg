@@ -33,6 +33,16 @@ N_DATASETS=${#DATASETS[@]}
 N_MODELS=${#MODELS[@]}
 N_JOBS=$(( N_DATASETS * N_MODELS ))
 
+# Which split is attacked for the current $STEM: the smaller of train/test.
+attacked_stem() {
+  local tr="${PROJECT:-.}/mdg/finetune/data/${STEM}__train.jsonl"
+  local te="${PROJECT:-.}/mdg/finetune/data/${STEM}__test.jsonl"
+  local trn=0 ten=0
+  [ -f "$tr" ] && trn=$(wc -l < "$tr" | tr -d ' ')
+  [ -f "$te" ] && ten=$(wc -l < "$te" | tr -d ' ')
+  if [ "$trn" -ge "$ten" ]; then echo "${STEM}__test"; else echo "${STEM}__train"; fi
+}
+
 # Map a flat SLURM_ARRAY_TASK_ID onto (model, dataset) and export the pieces.
 # Sets: MODULE MODEL_NAME HF_MODEL EXTRA_ARGS STEM LABELS DATASET_STEM HUB_ID
 resolve_task() {
@@ -45,5 +55,10 @@ resolve_task() {
 
   DATASET_STEM="${STEM#namesarnav_}"
   HUB_ID="namesarnav/${DATASET_STEM}-${MODEL_NAME}"
-  export MODULE MODEL_NAME HF_MODEL EXTRA_ARGS STEM LABELS DATASET_STEM HUB_ID
+
+  # Attacks run on the split NOT used for training (the smaller one), and
+  # attack.py names its output directory after that file. Everything that
+  # looks for finished work must agree on this name.
+  ATTACK_STEM="$(attacked_stem)"
+  export MODULE MODEL_NAME HF_MODEL EXTRA_ARGS STEM LABELS DATASET_STEM HUB_ID ATTACK_STEM
 }

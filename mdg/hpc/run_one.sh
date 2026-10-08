@@ -75,7 +75,7 @@ case "$STAGE" in
     # Empty = no --query-budget flag = TextAttack searches without a cap.
     QUERY_BUDGET="${QUERY_BUDGET:-}"
     ATTACK_OUT="mdg/adv_attack/results"
-    DONE_MARKER="$PROJECT/${ATTACK_OUT}/${STEM}/${MODEL_NAME}/all_summaries.json"
+    DONE_MARKER="$PROJECT/${ATTACK_OUT}/${ATTACK_STEM}/${MODEL_NAME}/all_summaries.json"
 
     if [ -f "$DONE_MARKER" ]; then
       echo "[SKIP] Already attacked: $DONE_MARKER"

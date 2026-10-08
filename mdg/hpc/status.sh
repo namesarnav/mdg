@@ -30,7 +30,7 @@ for ((i=0; i<N_JOBS; i++)); do
   resolve_task "$i"
   trained="no"
   [ -f "$CKPTS/$STEM/$MODEL_NAME/config.json" ] && trained="yes"
-  done_n=$(ls -1 "$RESULTS/$STEM/$MODEL_NAME/"*_summary.json 2>/dev/null | wc -l | tr -d ' ')
+  done_n=$(ls -1 "$RESULTS/$ATTACK_STEM/$MODEL_NAME/"*_summary.json 2>/dev/null | wc -l | tr -d ' ')
   total_done=$(( total_done + done_n ))
   total_cells=$(( total_cells + N_RECIPES ))
   bar_n=$(( done_n * 20 / N_RECIPES ))

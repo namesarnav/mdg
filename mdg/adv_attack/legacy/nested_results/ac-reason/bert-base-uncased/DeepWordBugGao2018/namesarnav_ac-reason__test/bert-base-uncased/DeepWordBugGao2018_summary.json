@@ -1,0 +1,9 @@
+{
+  "recipe": "DeepWordBugGao2018",
+  "num_examples": 1000,
+  "n_successful": 701,
+  "n_failed": 251,
+  "n_skipped": 48,
+  "attack_success_rate": 0.7363,
+  "avg_queries": 137.8
+}

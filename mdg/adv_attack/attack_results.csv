@@ -1,0 +1,9 @@
+model,dataset,recipe,num_examples,clean_micro_f1,clean_macro_f1,attacked_micro_f1,attacked_macro_f1,n_successful,n_failed,n_skipped,attack_success_rate,avg_queries,timestamp
+bert-base-uncased,counterbench,Pruthi2019,0,0.0,0.0,0.0,0.0,0,0,0,0.0,0.0,2026-10-08T13:05:37
+bert-base-uncased,counterbench,Pruthi2019,0,0.0,0.0,0.0,0.0,0,0,0,0.0,0.0,2026-10-08T13:07:32
+bert-base-uncased,counterbench,DeepWordBugGao2018,0,0.0,0.0,0.0,0.0,0,0,0,0.0,0.0,2026-10-08T13:07:32
+bert-base-uncased,counterbench,CheckList2020,0,0.0,0.0,0.0,0.0,0,0,0,0.0,0.0,2026-10-08T13:07:39
+bert-base-uncased,counterbench,PSOZang2020,0,0.0,0.0,0.0,0.0,0,0,0,0.0,0.0,2026-10-08T13:08:01
+bert-base-uncased,counterbench,MorpheusTan2020,0,0.0,0.0,0.0,0.0,0,0,0,0.0,0.0,2026-10-08T13:08:05
+bert-base-uncased,counterbench,PWWSRen2019,0,0.0,0.0,0.0,0.0,0,0,0,0.0,0.0,2026-10-08T13:08:42
+bert-base-uncased,counterbench,InputReductionFeng2018,0,0.0,0.0,0.0,0.0,0,0,0,0.0,0.0,2026-10-08T13:09:33

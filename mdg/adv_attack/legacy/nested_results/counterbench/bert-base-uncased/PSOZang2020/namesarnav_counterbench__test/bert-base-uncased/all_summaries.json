@@ -1,0 +1,11 @@
+[
+  {
+    "recipe": "PSOZang2020",
+    "num_examples": 330,
+    "n_successful": 54,
+    "n_failed": 206,
+    "n_skipped": 70,
+    "attack_success_rate": 0.2077,
+    "avg_queries": 3552.77
+  }
+]

@@ -52,12 +52,27 @@ _mdg_find_overlay_src() {
 export SIF="${SIF:-$(_mdg_find_sif || true)}"
 export OVERLAY_SRC="${OVERLAY_SRC:-$(_mdg_find_overlay_src || true)}"
 
-# Keep every cache on /scratch — /home has a hard inode quota that HuggingFace
-# model caches blow through immediately.
-export HF_HOME="${HF_HOME:-/scratch/$USER/hf_cache}"
+# Caches belong on /scratch on a cluster (/home has a hard inode quota that
+# HuggingFace caches blow through). Off-cluster there is no /scratch, so fall
+# back to $HOME — writing to a non-existent /scratch makes TextAttack die with
+# "Read-only file system" before the first attack.
+_mdg_cache_root() {
+  if [ -n "${MDG_CACHE_ROOT:-}" ]; then echo "$MDG_CACHE_ROOT"; return; fi
+  if [ -d "/scratch/$USER" ] && [ -w "/scratch/$USER" ]; then
+    echo "/scratch/$USER"
+  elif mkdir -p "/scratch/$USER" 2>/dev/null; then
+    echo "/scratch/$USER"
+  else
+    echo "$HOME/.cache/mdg"
+  fi
+}
+MDG_CACHE_ROOT="$(_mdg_cache_root)"
+mkdir -p "$MDG_CACHE_ROOT" 2>/dev/null || true
+export MDG_CACHE_ROOT
+export HF_HOME="${HF_HOME:-$MDG_CACHE_ROOT/hf_cache}"
 export TRANSFORMERS_CACHE="$HF_HOME"
 export HF_DATASETS_CACHE="$HF_HOME/datasets"
-export TA_CACHE_DIR="${TA_CACHE_DIR:-/scratch/$USER/textattack_cache}"
+export TA_CACHE_DIR="${TA_CACHE_DIR:-$MDG_CACHE_ROOT/textattack_cache}"
 export TOKENIZERS_PARALLELISM=false
 
 # ── Slurm ─────────────────────────────────────────────────────────────────────

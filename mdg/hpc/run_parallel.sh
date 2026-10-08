@@ -24,19 +24,22 @@ HPC_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$HPC_DIR/env.sh"
 source "$HPC_DIR/matrix.sh"
 
-LOG_DIR="/scratch/$USER/mdg-logs"
-mkdir -p "$LOG_DIR"
+# /scratch exists on clusters; fall back to the repo on a plain machine.
+LOG_DIR="${MDG_LOG_DIR:-/scratch/$USER/mdg-logs}"
+if ! mkdir -p "$LOG_DIR" 2>/dev/null; then
+  LOG_DIR="$PROJECT/mdg/logs"
+  mkdir -p "$LOG_DIR"
+fi
 
 # ── GNU parallel ──────────────────────────────────────────────────────────────
 if ! command -v parallel >/dev/null 2>&1; then
   module load parallel 2>/dev/null || true
 fi
-if ! command -v parallel >/dev/null 2>&1; then
-  echo "[ERROR] GNU parallel not found. Try 'module avail parallel', or use the"
-  echo "        xargs fallback:"
-  echo "          seq 0 $(( N_JOBS - 1 )) | xargs -P 4 -I{} bash $HPC_DIR/run_one.sh $STAGE {}"
-  exit 1
-fi
+# GNU parallel is preferred (joblog, resume); xargs -P is the fallback and is
+# present on every POSIX system.
+HAVE_PARALLEL=1
+command -v parallel >/dev/null 2>&1 || HAVE_PARALLEL=0
+[ "$HAVE_PARALLEL" = "0" ] && echo "[INFO] GNU parallel not found — using xargs -P (no joblog/resume-failed)"
 
 # ── How many at once ──────────────────────────────────────────────────────────
 detect_gpus() {
@@ -45,12 +48,33 @@ detect_gpus() {
   elif command -v nvidia-smi >/dev/null 2>&1; then
     nvidia-smi -L 2>/dev/null | wc -l
   else
-    echo 1
+    echo 0
   fi
 }
+detect_cores() {
+  if command -v nproc >/dev/null 2>&1; then nproc
+  elif [ "$(uname)" = "Darwin" ]; then sysctl -n hw.ncpu
+  else echo 4; fi
+}
 NGPU="$(detect_gpus)"
-[ "${NGPU:-0}" -lt 1 ] && NGPU=1
-JOBS="${JOBS:-$NGPU}"
+NCORE="$(detect_cores)"
+
+# CPU-only box (no GPU): run many single-threaded workers rather than one
+# multi-threaded process. BERT-size inference does not scale well across many
+# threads, but N independent attacks across N cores scale almost linearly.
+THREADS_PER_JOB="${THREADS_PER_JOB:-2}"
+if [ "${NGPU:-0}" -lt 1 ]; then
+  CPU_MODE=1
+  JOBS="${JOBS:-$(( NCORE / THREADS_PER_JOB ))}"
+  [ "${JOBS:-0}" -lt 1 ] && JOBS=1
+  export OMP_NUM_THREADS="$THREADS_PER_JOB"
+  export MKL_NUM_THREADS="$THREADS_PER_JOB"
+  export TOKENIZERS_PARALLELISM=false
+  NGPU=1   # keeps the slot arithmetic below harmless on CPU
+else
+  CPU_MODE=0
+  JOBS="${JOBS:-$NGPU}"
+fi
 
 run_stage() {
   local stage="$1"
@@ -59,7 +83,12 @@ run_stage() {
   echo "========================================================"
   echo "  STAGE   : $stage"
   echo "  TASKS   : $N_JOBS  ($N_MODELS models × $N_DATASETS datasets)"
-  echo "  PARALLEL: $JOBS at a time across $NGPU GPU(s)"
+  if [ "$CPU_MODE" = "1" ]; then
+    echo "  HARDWARE: CPU-only — $NCORE cores, $THREADS_PER_JOB threads/worker"
+    echo "  PARALLEL: $JOBS workers at a time"
+  else
+    echo "  PARALLEL: $JOBS at a time across $NGPU GPU(s)"
+  fi
   echo "  JOBLOG  : $joblog"
   echo "========================================================"
 
@@ -81,9 +110,58 @@ run_stage() {
   echo "    parallel --joblog $joblog --resume-failed --jobs $JOBS ..."
 }
 
+# Fan out over (task, recipe) CELLS rather than tasks: 396 units instead of 22,
+# which is what keeps a many-core machine busy. Finished cells are skipped.
+run_cells() {
+  local joblog="$LOG_DIR/parallel-cells.joblog"
+  local cells="$LOG_DIR/cells.txt"
+  : > "$cells"
+
+  RECIPE_LIST=()
+  while IFS= read -r r; do
+    [ -n "$r" ] && RECIPE_LIST+=("$r")
+  done < <(awk '/^MULTILINGUAL_RECIPES/{exit}
+                /^[[:space:]]*\("/{ if (match($0, /"[^"]+"/)) print substr($0, RSTART+1, RLENGTH-2) }' \
+                "$PROJECT/mdg/adv_attack/attack.py")
+
+  local i recipe pending=0
+  for ((i=0; i<N_JOBS; i++)); do
+    resolve_task "$i"
+    [ -n "${ONLY_TASKS:-}" ] && ! grep -qw "$i" <<< "$ONLY_TASKS" && continue
+    [ -f "$PROJECT/mdg/finetune/checkpoints/$STEM/$MODEL_NAME/config.json" ] || continue
+    for recipe in "${RECIPE_LIST[@]}"; do
+      [ -f "$PROJECT/mdg/adv_attack/results/${STEM}/${MODEL_NAME}/${recipe}_summary.json" ] && continue
+      echo "$i $recipe" >> "$cells"
+      pending=$(( pending + 1 ))
+    done
+  done
+
+  echo ""
+  echo "========================================================"
+  echo "  STAGE   : attack (cell-level)"
+  echo "  PENDING : $pending cells of $(( N_JOBS * ${#RECIPE_LIST[@]} ))"
+  echo "  PARALLEL: $JOBS workers"
+  echo "========================================================"
+  [ "$pending" -eq 0 ] && { echo "  nothing left to do"; return 0; }
+
+  if [ "$HAVE_PARALLEL" = "1" ]; then
+    parallel --jobs "$JOBS" --joblog "$joblog" --halt never --line-buffer --colsep ' ' \
+      "RECIPES={2} bash '$HPC_DIR/run_one.sh' attack {1} \
+         > '$LOG_DIR/cell-{1}-{2}.log' 2>&1" :::: "$cells"
+    echo "  failures:"
+    awk 'NR>1 && $7 != 0 {print "    seq " $1 " exit " $7}' "$joblog" || true
+  else
+    # One line per cell: "<task_id> <recipe>"
+    xargs -P "$JOBS" -L1 bash -c \
+      'RECIPES="$1" bash "'"$HPC_DIR"'/run_one.sh" attack "$0" > "'"$LOG_DIR"'/cell-$0-$1.log" 2>&1' \
+      < "$cells"
+  fi
+}
+
 case "$STAGE" in
   train)  run_stage train ;;
   attack) run_stage attack ;;
+  cells)  run_cells ;;
   all)
     run_stage train
     run_stage attack
@@ -92,7 +170,8 @@ case "$STAGE" in
     cd "$PROJECT" && in_container "python -m mdg.scripts.consolidate_results"
     ;;
   *)
-    echo "usage: $0 <train|attack|all>"
+    echo "usage: $0 <train|attack|cells|all>"
+    echo "  cells = fan out over (task, recipe) pairs — best for many-core CPU boxes"
     exit 2
     ;;
 esac

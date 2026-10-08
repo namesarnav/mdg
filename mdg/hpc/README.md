@@ -71,8 +71,19 @@ Training pushes each model to the Hub, and the attack stage falls back to the
 Hub copy when there is no local checkpoint — so machines do not need to share a
 filesystem or retrain each other's models.
 
-Merge results at the end by rsyncing each machine's `mdg/adv_attack/results/`
-and `attack_results.csv` into one place, then running the consolidation.
+Merge results at the end. The consolidation walks every source — summary JSONs,
+the appended `attack_results.csv`, older per-recipe CSVs under
+`adv_attack/legacy/`, and each checkpoint's `eval_results.json` — dedupes by
+(model, dataset, recipe) and writes one row each:
+
+```bash
+python -m mdg.scripts.consolidate_results \
+  --extra /path/to/vm2/results /path/to/vm3/results
+```
+
+`--extra` folds in results copied from other machines without moving them into
+place first. Rows carry a `source` column and a `perturbed_file` path, so you
+can see where each number came from and which have perturbed data on disk.
 
 ## Google Colab
 

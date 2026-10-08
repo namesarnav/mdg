@@ -1,0 +1,9 @@
+{
+  "recipe": "CheckList2020",
+  "num_examples": 1000,
+  "n_successful": 18,
+  "n_failed": 946,
+  "n_skipped": 36,
+  "attack_success_rate": 0.0187,
+  "avg_queries": 12.48
+}

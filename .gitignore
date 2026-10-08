@@ -15,6 +15,17 @@ dist/
 runs/
 results/
 
+# ...but keep the small result artifacts: summaries and consolidated CSVs are
+# what make a fresh clone resume instead of recomputing. The bulky per-example
+# *.jsonl stay out of git — sync those with rsync or a HuggingFace dataset.
+!mdg/results/
+!mdg/results/*.csv
+!mdg/adv_attack/results/
+!mdg/adv_attack/results/**/
+!mdg/adv_attack/results/**/*_summary.json
+!mdg/adv_attack/results/**/all_summaries.json
+mdg/adv_attack/results/**/*.jsonl
+
 # Jupyter
 .ipynb_checkpoints/
 

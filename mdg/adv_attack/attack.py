@@ -191,6 +191,9 @@ def run_recipe(
     query_budget: Optional[int],
     model_name: str = "",
     dataset_label: str = "",
+    out_suffix: str = "",
+    shard_idx: int = 0,
+    shard_count: int = 1,
 ) -> Optional[Dict]:
     """
     Run one attack recipe. Saves per-example JSONL and a summary JSON.
@@ -225,7 +228,7 @@ def run_recipe(
 
     # Stream results — write each example to disk immediately so nothing is
     # lost if the process is interrupted mid-attack.
-    jsonl_path = output_dir / f"{recipe_name}.jsonl"
+    jsonl_path = output_dir / f"{recipe_name}{out_suffix}.jsonl"
     n_successful = 0
     n_failed = 0
     n_skipped = 0
@@ -254,7 +257,10 @@ def run_recipe(
             entry = {
                 # Self-describing: these files get merged across machines, so
                 # every row carries what produced it.
-                "idx":           idx,
+                # Global row number in the dataset, so shards merge without
+                # colliding: shard i of n holds rows i, i+n, i+2n, ...
+                "idx":           shard_idx + shard_count * idx,
+                "row_shard":     out_suffix.lstrip(".") or None,
                 "dataset":       dataset_label,
                 "model":         model_name,
                 "recipe":        recipe_name,
@@ -303,6 +309,7 @@ def run_recipe(
 
     summary = {
         "recipe":              recipe_name,
+        "row_shard":           out_suffix.lstrip(".") or None,
         "num_examples":        n_total,
         # F1 on the model's predictions over the ORIGINAL (unperturbed) texts
         "clean_micro_f1":      _f1(golds, clean_preds, "micro"),
@@ -317,7 +324,7 @@ def run_recipe(
         "avg_queries":         round(avg_queries, 2),
     }
 
-    summary_path = output_dir / f"{recipe_name}_summary.json"
+    summary_path = output_dir / f"{recipe_name}{out_suffix}_summary.json"
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2)
 
@@ -358,6 +365,7 @@ def run(
     model_name_override: Optional[str] = None,
     dataset_name_override: Optional[str] = None,
     skip_existing: bool = True,
+    row_shard: Optional[str] = None,
 ) -> None:
     import textattack
 
@@ -403,6 +411,27 @@ def run(
             f"       Pass --label-field / --text-fields to match the file."
         )
 
+    # Row sharding: every machine runs EVERY recipe over a disjoint 1/n slice of
+    # the rows. Cell-level sharding alone cannot finish corr2cause — one recipe
+    # over 208k rows is weeks on a single core — so the split has to go deeper.
+    shard_idx, shard_count, suffix = 0, 1, ""
+    if row_shard:
+        try:
+            shard_idx, shard_count = (int(x) for x in row_shard.split("/", 1))
+        except ValueError:
+            raise SystemExit(f"[FAIL] --row-shard must be i/n (got {row_shard!r})")
+        if not (shard_count > 0 and 0 <= shard_idx < shard_count):
+            raise SystemExit(f"[FAIL] --row-shard needs 0 <= i < n (got {row_shard!r})")
+        if shard_count > 1:
+            raw_data = raw_data[shard_idx::shard_count]
+            suffix = f".sh{shard_idx}of{shard_count}"
+            print(f"  Row shard {shard_idx}/{shard_count} → {len(raw_data)} examples\n")
+            if not raw_data:
+                raise SystemExit(
+                    f"[FAIL] row shard {row_shard} of {dataset_path} is empty — "
+                    f"fewer rows than shards."
+                )
+
     ta_dataset = textattack.datasets.Dataset(raw_data, label_names=label_space_upper)
 
     #  Model wrapper 
@@ -426,7 +455,7 @@ def run(
         # Resume at recipe granularity: a finished recipe has written its
         # summary JSON, so an interrupted run (Colab timeout, job wall clock)
         # picks up where it stopped instead of redoing the whole pair.
-        existing = run_dir / f"{recipe_name}_summary.json"
+        existing = run_dir / f"{recipe_name}{suffix}_summary.json"
         if skip_existing and existing.exists():
             try:
                 with open(existing) as f:
@@ -445,6 +474,9 @@ def run(
             query_budget=query_budget,
             model_name=model_name,
             dataset_label=dataset_label,
+            out_suffix=suffix,
+            shard_idx=shard_idx,
+            shard_count=shard_count,
         )
         if summary:
             all_summaries.append(summary)
@@ -454,6 +486,7 @@ def run(
                     "model":               model_name,
                     "dataset":             dataset_label,
                     "recipe":              summary["recipe"],
+                    "row_shard":           summary.get("row_shard"),
                     "num_examples":        summary["num_examples"],
                     "clean_micro_f1":      summary["clean_micro_f1"],
                     "clean_macro_f1":      summary["clean_macro_f1"],
@@ -469,7 +502,7 @@ def run(
                 _append_csv(Path(results_csv), row)
 
     #  Combined summary
-    combined_path = run_dir / "all_summaries.json"
+    combined_path = run_dir / f"all_summaries{suffix}.json"
     with open(combined_path, "w") as f:
         json.dump(all_summaries, f, indent=2)
 
@@ -518,6 +551,10 @@ def main() -> None:
     parser.add_argument("--no-skip-existing", action="store_true",
                         help="Re-run recipes that already have a summary JSON "
                              "(default: skip them, so runs resume per recipe)")
+    parser.add_argument("--row-shard", default=None, metavar="i/n",
+                        help="Attack only rows i, i+n, i+2n, ... Lets many machines "
+                             "split one (model, dataset, recipe) cell. Outputs are "
+                             "suffixed .shiofn and merged by consolidate_results.")
     parser.add_argument("--dataset-name", default=None,
                         help="Label for dataset column in CSV (default: file stem)")
     args = parser.parse_args()
@@ -553,6 +590,7 @@ def main() -> None:
         model_name_override=args.model_name,
         dataset_name_override=args.dataset_name,
         skip_existing=not args.no_skip_existing,
+        row_shard=args.row_shard,
     )
 
 

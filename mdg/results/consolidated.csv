@@ -12,6 +12,7 @@ bert-base-uncased,counterbench,CheckList2020,,0.7874,0.7879,330,,,,,,,47,213,70,
 bert-base-uncased,counterbench,DeepWordBugGao2018,,0.7874,0.7879,330,,,,,,,250,10,70,0.9615,41.49,mdg/adv_attack/results/namesarnav_counterbench__test/bert-base-uncased/DeepWordBugGao2018.jsonl,summary_json,2026-09-28T08:14:41
 bert-base-uncased,counterbench,PSOZang2020,,0.7874,0.7879,330,,,,,,,54,206,70,0.2077,3552.77,mdg/adv_attack/results/namesarnav_counterbench__test/bert-base-uncased/PSOZang2020.jsonl,summary_json,2026-09-30T07:00:46
 bert-base-uncased,counterbench,PWWSRen2019,,0.7874,0.7879,330,,,,,,,229,31,70,0.8808,177.83,mdg/adv_attack/results/namesarnav_counterbench__test/bert-base-uncased/PWWSRen2019.jsonl,summary_json,2026-09-29T08:58:53
+bert-base-uncased,counterbench,Pruthi2019,,0.7874,0.7879,3,1.0,1.0,0.6667,0.6667,0.3333,0.3333,1,2,0,0.3333,569.67,,attack_csv,2026-10-08T13:45:05
 roberta-base,counterbench,CheckList2020,,,,330,,,,,,,50,228,52,0.1799,21.66,mdg/adv_attack/results/namesarnav_counterbench__test/roberta-base/CheckList2020.jsonl,summary_json,2026-09-28T04:33:51
 roberta-base,counterbench,DeepWordBugGao2018,,,,330,,,,,,,246,32,52,0.8849,47.26,mdg/adv_attack/results/namesarnav_counterbench__test/roberta-base/DeepWordBugGao2018.jsonl,summary_json,2026-09-28T06:56:52
 roberta-base,counterbench,PSOZang2020,,,,330,,,,,,,42,236,52,0.1511,5603.66,mdg/adv_attack/results/namesarnav_counterbench__test/roberta-base/PSOZang2020.jsonl,summary_json,2026-09-30T05:30:26

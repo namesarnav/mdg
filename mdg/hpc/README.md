@@ -8,6 +8,14 @@ dataset, and consolidates everything into one CSV.
 Scale: 365,444 data points × 18 recipes × 2 models = **13.2M example-attacks**
 across **396 cells** (dataset × model × recipe).
 
+Work is split two ways, and both are needed:
+
+* **cells** — one (dataset, model, recipe) combination.
+* **row shards** — `ROW_SHARDS=k` splits each dataset's rows k ways, so one cell
+  can be worked by k machines at once. Cell-level splitting alone cannot
+  finish: corr2cause is 208k rows, and a single recipe over it on one core is
+  weeks, no matter how many machines you add.
+
 ## Your own cluster or VMs (no scheduler) — start here
 
 Per machine:
@@ -19,26 +27,72 @@ echo 'hf_xxx' > ~/.hf_token && chmod 600 ~/.hf_token
 bash mdg/hpc/02_build_all_splits.sh       # build the <stem>__all.jsonl files
 ```
 
-Train (few workers, many threads each — training scales across threads):
+Train (few workers, many threads each — training scales across threads). Split
+the 22 tasks across machines with `ONLY_TASKS`, and **wait for every machine to
+finish pushing** before attacking, since the attack stage pulls models from the
+Hub:
 
 ```bash
-ONLY_TASKS="0 1 2 3 4 5 6" JOBS=7 THREADS_PER_JOB=16 bash mdg/hpc/run_parallel.sh train
+ONLY_TASKS="0 1 2 3" JOBS=4 THREADS_PER_JOB=16 bash mdg/hpc/run_parallel.sh train
 ```
 
-Attack (many single-threaded workers — inference does not scale across threads):
+Attack (many single-threaded workers — inference does not scale across
+threads). Set `ROW_SHARDS` to the number of machines, and give each machine its
+own `SHARD`:
 
 ```bash
-DRY_RUN=1 bash mdg/hpc/run_parallel.sh cells      # check the sizing first
-SHARD=0/3 nohup bash mdg/hpc/run_parallel.sh cells > ~/attack.log 2>&1 &
+# on every machine, identical except for SHARD
+export ROW_SHARDS=8
+DRY_RUN=1 SHARD=0/8 bash mdg/hpc/run_parallel.sh cells        # check sizing first
+SHARD=0/8 nohup bash mdg/hpc/run_parallel.sh cells > ~/attack.log 2>&1 &
 ```
 
-`SHARD=i/n` gives each machine a disjoint slice. Workers are sized
-automatically from cores and RAM — on 144 cores / 512GB that is ~144 workers.
-Everything resumes: finished cells are skipped, so just re-run after any
+With `ROW_SHARDS=k` and `SHARD=i/k` each machine runs every recipe over rows
+i, i+k, i+2k, … — an even split by construction, so no machine inherits
+corr2cause while another gets counterbench. Units are started biggest-first so
+the run does not end with one huge unit holding up an otherwise idle box.
+Workers are sized automatically from cores and RAM: 64 cores / 256GB gives 64.
+Everything resumes — finished units are skipped, so re-run after any
 interruption.
 
-Monitor with `bash mdg/hpc/status.sh`, merge at the end with
-`python -m mdg.scripts.consolidate_results --extra /path/to/other/results`.
+`ROW_SHARDS` and `SHARD` do not have to match. More shards than machines is
+fine and gives finer-grained resume; what must never change mid-run is
+`ROW_SHARDS`, because the shard count is baked into the output filenames.
+
+Monitor with `ROW_SHARDS=8 bash mdg/hpc/status.sh`.
+
+### Finishing
+
+Collect every machine's results onto one box, fold the shards back together,
+then consolidate:
+
+```bash
+for h in vm2 vm3 vm4 vm5 vm6 vm7 vm8; do
+  rsync -av "$h:~/mdg/mdg/adv_attack/results/" ~/mdg/mdg/adv_attack/results/
+done
+python -m mdg.scripts.merge_shards --backfill    # shards → one result per cell
+python -m mdg.scripts.consolidate_results
+```
+
+`merge_shards` recomputes micro/macro F1 from the merged per-example records
+rather than averaging the shards — macro F1 is not a weighted mean, so
+averaging would be quietly wrong. A cell missing any shard is reported and left
+alone rather than merged half-complete. `--backfill` also fills in F1 for older
+runs whose summaries predate the metric, using the perturbed JSONL on disk.
+
+### How many machines
+
+One 64-core machine is ~64 workers, and the whole grid is roughly 36,000
+core-hours at the measured ~10s per example-attack:
+
+| Machines (64 cores each) | Workers | Rough wall clock |
+|---|---|---|
+| 4 | 256 | ~6 days |
+| 8 | 512 | ~3 days |
+| 16 | 1024 | ~1.5 days |
+
+Set `ROW_SHARDS` to the machine count. These are compute estimates; plan for
+roughly double in practice.
 
 ## Scripts
 
@@ -49,7 +103,8 @@ Monitor with `bash mdg/hpc/status.sh`, merge at the end with
 | `run_parallel.sh` | `train`, `cells` (attack), or `all` — the main runner |
 | `run_one.sh` | One (model × dataset) task; shared by every path |
 | `run_budget.sh` | Work cheapest-first for N hours then stop (capped sessions) |
-| `status.sh` | Progress: trained pairs, recipes done, overall % |
+| `status.sh` | Progress: trained pairs, units done, overall % |
+| `../scripts/merge_shards.py` | Fold row shards into one result per cell; backfill old F1 |
 | `migrate_results.sh` | Fold older result layouts into the canonical one |
 | `matrix.sh` | The grid: datasets × models. Edit here to change scope |
 | `check_access.sh` | Slurm pre-flight (NYU HPC only) |
@@ -66,7 +121,8 @@ Monitor with `bash mdg/hpc/status.sh`, merge at the end with
 | `JOBS` | auto | Concurrent workers |
 | `THREADS_PER_JOB` | `1` | Threads per worker |
 | `MEM_PER_WORKER_GB` | `3` | Planning figure for worker sizing |
-| `SHARD` | unset | `i/n` — this machine's slice of the cells |
+| `ROW_SHARDS` | `1` | Split every dataset's rows this many ways |
+| `SHARD` | unset | `i/n` — this machine's slice of the units |
 | `ONLY_TASKS` | unset | Restrict to these task ids |
 | `RECIPES` | unset | Restrict to these recipe names |
 | `DRY_RUN` | unset | Print sizing and pending work, launch nothing |
@@ -77,6 +133,7 @@ Monitor with `bash mdg/hpc/status.sh`, merge at the end with
 |---|---|
 | `mdg/finetune/checkpoints/<stem>/<model>/` | Trained model |
 | `mdg/finetune/train_results.csv` | Per model × dataset: micro + macro F1, accuracy |
+| `mdg/adv_attack/results/<split>/<model>/<recipe>.sh<i>of<n>.jsonl` | One row shard's attacked examples, before merging |
 | `mdg/adv_attack/results/<split>/<model>/<recipe>.jsonl` | **Every attacked example**: ground truth, original and perturbed text + predictions, query count |
 | `mdg/adv_attack/results/<split>/<model>/<recipe>_summary.json` | ASR, clean and attacked micro + macro F1 |
 | `mdg/results/consolidated.csv` | **Final CSV** — one row per cell, every metric |

@@ -151,7 +151,16 @@ run_cells() {
                 /^[[:space:]]*\("/{ if (match($0, /"[^"]+"/)) print substr($0, RSTART+1, RLENGTH-2) }' \
                 "$PROJECT/mdg/adv_attack/attack.py")
 
-  local i recipe pending=0 hub_only=""
+  # ROW_SHARDS=k splits every dataset's ROWS k ways, turning each (task, recipe)
+  # cell into k independent units. Without it the grid cannot finish in
+  # reasonable time whatever the machine count: corr2cause is 208k rows, and one
+  # recipe over it on one core is weeks. With k, the biggest unit is 208k/k rows.
+  local ROW_SHARDS="${ROW_SHARDS:-1}"
+  if ! [ "$ROW_SHARDS" -ge 1 ] 2>/dev/null; then
+    echo "[ERROR] ROW_SHARDS must be a positive integer (got '$ROW_SHARDS')"; return 2
+  fi
+
+  local i recipe pending=0 hub_only="" rs sfx
   for ((i=0; i<N_JOBS; i++)); do
     resolve_task "$i"
     [ -n "${ONLY_TASKS:-}" ] && ! grep -qw "$i" <<< "$ONLY_TASKS" && continue
@@ -162,12 +171,25 @@ run_cells() {
       [ -n "${REQUIRE_LOCAL:-}" ] && continue
       hub_only="$hub_only $DATASET_STEM/$MODEL_NAME"
     fi
+    NROWS=$(wc -l < "$PROJECT/mdg/finetune/data/${ATTACK_STEM}.jsonl" 2>/dev/null | tr -d ' ')
+    NROWS="${NROWS:-0}"
     for recipe in "${RECIPE_LIST[@]}"; do
-      [ -f "$PROJECT/mdg/adv_attack/results/${ATTACK_STEM}/${MODEL_NAME}/${recipe}_summary.json" ] && continue
-      echo "$i $recipe" >> "$cells"
-      pending=$(( pending + 1 ))
+      for ((rs=0; rs<ROW_SHARDS; rs++)); do
+        if [ "$ROW_SHARDS" -eq 1 ]; then sfx=""; else sfx=".sh${rs}of${ROW_SHARDS}"; fi
+        [ -f "$PROJECT/mdg/adv_attack/results/${ATTACK_STEM}/${MODEL_NAME}/${recipe}${sfx}_summary.json" ] && continue
+        echo "$NROWS $i $recipe ${rs}/${ROW_SHARDS} ${rs}of${ROW_SHARDS}" >> "$cells"
+        pending=$(( pending + 1 ))
+      done
     done
   done
+
+  # Longest-processing-time-first: start the biggest units before the small
+  # ones, so the run does not end with a lone 200k-row unit still going while
+  # 63 cores idle. Column 1 is the row count and is dropped after sorting.
+  if [ -s "$cells" ]; then
+    sort -k1,1nr -s "$cells" | cut -d" " -f2- > "$cells.sorted"
+    mv "$cells.sorted" "$cells"
+  fi
 
   # SHARD="i/n" keeps several machines on disjoint slices of the same grid.
   # Round-robin over the cell list, so each shard gets a similar mix of big and
@@ -194,7 +216,8 @@ run_cells() {
   echo ""
   echo "========================================================"
   echo "  STAGE   : attack (cell-level)"
-  echo "  PENDING : $pending cells of $(( N_JOBS * ${#RECIPE_LIST[@]} ))"
+  echo "  PENDING : $pending units of $(( N_JOBS * ${#RECIPE_LIST[@]} * ROW_SHARDS ))"
+  echo "  GRID    : $N_JOBS tasks x ${#RECIPE_LIST[@]} recipes x $ROW_SHARDS row shard(s)"
   if [ "$CPU_MODE" = "1" ]; then
     echo "  HARDWARE: CPU-only — ${NCORE} cores, ${MEM_GB}GB RAM"
     echo "  SIZING  : cores allow $BY_CORES, memory allows $BY_MEM (~${MEM_PER_WORKER_GB}GB/worker)"
@@ -212,14 +235,15 @@ run_cells() {
 
   if [ "$HAVE_PARALLEL" = "1" ]; then
     parallel --jobs "$JOBS" --joblog "$joblog" --halt never --line-buffer --colsep ' ' \
-      "RECIPES={2} bash '$HPC_DIR/run_one.sh' attack {1} \
-         > '$LOG_DIR/cell-{1}-{2}.log' 2>&1" :::: "$cells"
+      "RECIPES={2} ROW_SHARD={3} bash '$HPC_DIR/run_one.sh' attack {1} \
+         > '$LOG_DIR/cell-{1}-{2}-{4}.log' 2>&1" :::: "$cells"
     echo "  failures:"
     awk 'NR>1 && $7 != 0 {print "    seq " $1 " exit " $7}' "$joblog" || true
   else
-    # One line per cell: "<task_id> <recipe>"
+    # One line per unit: "<task_id> <recipe> <i/n> <iofn>"
     xargs -P "$JOBS" -L1 bash -c \
-      'RECIPES="$1" bash "'"$HPC_DIR"'/run_one.sh" attack "$0" > "'"$LOG_DIR"'/cell-$0-$1.log" 2>&1' \
+      'RECIPES="$1" ROW_SHARD="$2" bash "'"$HPC_DIR"'/run_one.sh" attack "$0" \
+         > "'"$LOG_DIR"'/cell-$0-$1-$3.log" 2>&1' \
       < "$cells"
   fi
 }
@@ -237,7 +261,7 @@ case "$STAGE" in
     ;;
   *)
     echo "usage: $0 <train|attack|cells|all>"
-    echo "  cells = fan out over (task, recipe) pairs — best for many-core CPU boxes"
+    echo "  cells = fan out over (task, recipe, row-shard) units — best for CPU boxes"
     exit 2
     ;;
 esac

@@ -130,6 +130,11 @@ def from_summary_json(path: Path, source: str) -> Optional[Dict[str, str]]:
         return None
     if not isinstance(d, dict) or "recipe" not in d:
         return None
+    # A row-shard summary covers 1/n of the dataset; counting it as the cell's
+    # result would understate num_examples and skew F1. merge_shards.py folds
+    # these into the plain <recipe>_summary.json first.
+    if d.get("row_shard") or re.search(r"\.sh\d+of\d+_summary\.json$", path.name):
+        return None
     # .../results/<split>/<model>/<recipe>_summary.json
     model   = norm_model(path.parent.name)
     dataset = norm_dataset(path.parent.parent.name)

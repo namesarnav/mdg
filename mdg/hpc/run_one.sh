@@ -75,7 +75,25 @@ case "$STAGE" in
     # Empty = no --query-budget flag = TextAttack searches without a cap.
     QUERY_BUDGET="${QUERY_BUDGET:-}"
     ATTACK_OUT="mdg/adv_attack/results"
-    DONE_MARKER="$PROJECT/${ATTACK_OUT}/${ATTACK_STEM}/${MODEL_NAME}/all_summaries.json"
+    # ROW_SHARD="i/n" splits the ROWS of this dataset across machines, so one
+    # (model, dataset, recipe) cell can be worked by n machines at once. Needed
+    # for corr2cause: 208k rows x one recipe is weeks on a single core.
+    ROW_SHARD="${ROW_SHARD:-}"
+    SHARD_ARG=""
+    SHARD_SUFFIX=""
+    if [ -n "$ROW_SHARD" ] && [ "${ROW_SHARD##*/}" != "1" ]; then
+      SHARD_ARG="--row-shard $ROW_SHARD"
+      SHARD_SUFFIX=".sh${ROW_SHARD%%/*}of${ROW_SHARD##*/}"
+    fi
+    RESULT_DIR="$PROJECT/${ATTACK_OUT}/${ATTACK_STEM}/${MODEL_NAME}"
+    # With RECIPES set to a single recipe (how run_parallel.sh cells calls us)
+    # the task is NOT finished when all_summaries.json appears — that file is
+    # written after every invocation. Check this recipe's own summary instead.
+    if [ -n "${RECIPES:-}" ] && [ "$(echo $RECIPES | wc -w)" -eq 1 ]; then
+      DONE_MARKER="${RESULT_DIR}/${RECIPES}${SHARD_SUFFIX}_summary.json"
+    else
+      DONE_MARKER="${RESULT_DIR}/all_summaries${SHARD_SUFFIX}.json"
+    fi
 
     if [ -f "$DONE_MARKER" ]; then
       echo "[SKIP] Already attacked: $DONE_MARKER"
@@ -103,7 +121,7 @@ case "$STAGE" in
     # work through one recipe at a time inside a short session.
     RECIPE_ARG=""
     [ -n "${RECIPES:-}" ] && RECIPE_ARG="--recipes ${RECIPES}"
-    echo "  attack split=$(basename $ATTACK_FILE)  examples=${NUM_EXAMPLES/-1/ALL}  budget=${QUERY_BUDGET:-unlimited}"
+    echo "  attack split=$(basename $ATTACK_FILE)  examples=${NUM_EXAMPLES/-1/ALL}  budget=${QUERY_BUDGET:-unlimited}  rows=${ROW_SHARD:-all}"
 
     # Files from prepare_finetune_data are normalised to {text, label}; do not
     # let attack.py guess a per-dataset field name from the filename.
@@ -117,6 +135,7 @@ case "$STAGE" in
       --num-examples $NUM_EXAMPLES \
       $BUDGET_ARG \
       $RECIPE_ARG \
+      $SHARD_ARG \
       --results-csv  'mdg/adv_attack/attack_results.csv' \
       --model-name   '$MODEL_NAME' \
       --dataset-name '$DATASET_STEM'"

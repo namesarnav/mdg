@@ -128,6 +128,11 @@ _mdg_detect_runtime() {
 export MDG_RUNTIME="$(_mdg_detect_runtime)"
 
 # Conda env used by the direct runtime (setup_vm.sh creates it here).
+# An in-project .venv (what setup_poetry.sh builds) wins over the conda env
+# that setup_vm.sh builds, so either setup path works with no extra config.
+if [ -z "${MDG_VENV:-}" ] && [ -f "$PROJECT/.venv/bin/activate" ]; then
+  MDG_VENV="$PROJECT/.venv"
+fi
 export MDG_VENV="${MDG_VENV:-$HOME/mdg-env}"
 
 in_container() {

@@ -22,7 +22,8 @@ Per machine:
 
 ```bash
 git clone https://github.com/namesarnav/mdg.git ~/mdg && cd ~/mdg
-bash mdg/hpc/setup_vm.sh                  # conda env; no container needed
+bash mdg/hpc/setup_poetry.sh              # pyenv 3.11 + poetry → ./.venv
+# or: bash mdg/hpc/setup_vm.sh            # same packages via Miniforge
 echo 'hf_xxx' > ~/.hf_token && chmod 600 ~/.hf_token
 bash mdg/hpc/02_build_all_splits.sh       # build the <stem>__all.jsonl files
 ```
@@ -133,7 +134,8 @@ roughly double in practice.
 
 | File | Purpose |
 |---|---|
-| `setup_vm.sh` | Build the conda env on any Linux box (no Slurm, no Singularity) |
+| `setup_poetry.sh` | Build the env with pyenv + Poetry into `./.venv` |
+| `setup_vm.sh` | Same packages via Miniforge, if you prefer conda |
 | `02_build_all_splits.sh` | Concatenate train+test+validation into `<stem>__all.jsonl` |
 | `run_parallel.sh` | `train`, `cells` (attack), or `all` — the main runner |
 | `run_one.sh` | One (model × dataset) task; shared by every path |

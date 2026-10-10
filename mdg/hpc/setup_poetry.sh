@@ -10,7 +10,9 @@
 # setup_vm.sh does the same job with Miniforge. Use one or the other, not both.
 set -euo pipefail
 
-PY_VERSION="${PY_VERSION:-3.11.9}"
+# Tracked in .python-version, so every machine agrees. flair/textattack and
+# their wheels are best-tested on 3.11; 3.13 risks missing wheels.
+PY_VERSION="${PY_VERSION:-$(cat "$(cd "$(dirname "$0")/../.." && pwd)/.python-version" 2>/dev/null || echo 3.11.9)}"
 HPC_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT="$(cd "$HPC_DIR/../.." && pwd)"
 cd "$PROJECT"
@@ -72,7 +74,6 @@ if ! pyenv versions --bare | grep -qx "$PY_VERSION"; then
 else
   echo "[3/5] CPython $PY_VERSION already built"
 fi
-pyenv local "$PY_VERSION"
 PY_BIN="$PYENV_ROOT/versions/$PY_VERSION/bin/python"
 
 # ── Poetry ────────────────────────────────────────────────────────────────────

@@ -61,6 +61,10 @@ resolve_task() {
   local d_idx=$(( idx % N_DATASETS ))
 
   IFS='|' read -r MODULE MODEL_NAME HF_MODEL EXTRA_ARGS <<< "${MODELS[$m_idx]}"
+  # TRAIN_ARGS replaces the per-model training flags for this invocation, e.g.
+  # TRAIN_ARGS="--epochs 2 --batch 32 --lr 2e-5" on a 200k-row dataset where
+  # five CPU epochs would cost a day for no gain.
+  [ -n "${TRAIN_ARGS:-}" ] && EXTRA_ARGS="$TRAIN_ARGS"
   IFS='|' read -r STEM LABELS <<< "${DATASETS[$d_idx]}"
 
   DATASET_STEM="${STEM#namesarnav_}"

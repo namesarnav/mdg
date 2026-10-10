@@ -80,6 +80,41 @@ averaging would be quietly wrong. A cell missing any shard is reported and left
 alone rather than merged half-complete. `--backfill` also fills in F1 for older
 runs whose summaries predate the metric, using the perturbed JSONL on disk.
 
+### Task ids
+
+Tasks 0–10 are bert-base-uncased, 11–21 are roberta-base, in this dataset
+order (rows = every data point, what the attacks run on):
+
+| | dataset | rows | bert | roberta |
+|---|---|---|---|---|
+| | counterbench | 1,320 | 0 | 11 |
+| | ac-reason | 4,000 | 1 | 12 |
+| | bbh-causal-judgement | 4,000 | 2 | 13 |
+| | causalbench_code | 7,856 | 3 | 14 |
+| | causalbench_math | 12,895 | 4 | 15 |
+| | causalbench_text | 37,602 | 5 | 16 |
+| | corr2cause | 207,972 | 6 | 17 |
+| | e-care | 17,050 | 7 | 18 |
+| | fincausal-task1 | 18,749 | 8 | 19 |
+| | natquest | 27,000 | 9 | 20 |
+| | Quriosity | 27,000 | 10 | 21 |
+
+Split *training* by rows, not by task count — corr2cause is 57% of all rows and
+deserves a machine to itself. For 8 machines:
+
+| VM | `ONLY_TASKS` | `JOBS` | `THREADS_PER_JOB` | rows |
+|---|---|---|---|---|
+| 1 | `6` | 1 | 64 | 208k |
+| 2 | `17` | 1 | 64 | 208k |
+| 3 | `5 9` | 2 | 32 | 65k |
+| 4 | `16 20` | 2 | 32 | 65k |
+| 5 | `7 8 10` | 3 | 21 | 63k |
+| 6 | `18 19 21` | 3 | 21 | 63k |
+| 7 | `0 1 2 3 4` | 5 | 12 | 30k |
+| 8 | `11 12 13 14 15` | 5 | 12 | 30k |
+
+The *attacks* need no such care — `ROW_SHARDS` splits every dataset evenly.
+
 ### How many machines
 
 One 64-core machine is ~64 workers, and the whole grid is roughly 36,000
@@ -124,6 +159,8 @@ roughly double in practice.
 | `ROW_SHARDS` | `1` | Split every dataset's rows this many ways |
 | `SHARD` | unset | `i/n` — this machine's slice of the units |
 | `ONLY_TASKS` | unset | Restrict to these task ids |
+| `TRAIN_ARGS` | unset | Replace the training flags, e.g. `"--epochs 2 --batch 32 --lr 2e-5"` |
+| `REQUIRE_LOCAL` | unset | Attack only pairs trained on this machine |
 | `RECIPES` | unset | Restrict to these recipe names |
 | `DRY_RUN` | unset | Print sizing and pending work, launch nothing |
 

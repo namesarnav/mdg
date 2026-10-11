@@ -259,6 +259,10 @@ def run(cfg: FinetuneConfig) -> None:
             warmup_steps=100,
             eval_strategy="epoch",
             save_strategy="epoch",
+            # Keep only the best and the latest. Unbounded per-epoch checkpoints
+            # are ~1.2GB each, which matters on a Colab/Kaggle disk; the best one
+            # is retained regardless because of load_best_model_at_end.
+            save_total_limit=2,
             load_best_model_at_end=True,
             metric_for_best_model="macro_f1",
             greater_is_better=True,
@@ -300,6 +304,10 @@ def run(cfg: FinetuneConfig) -> None:
             warmup_steps=100,
             eval_strategy="epoch",
             save_strategy="epoch",
+            # Keep only the best and the latest. Unbounded per-epoch checkpoints
+            # are ~1.2GB each, which matters on a Colab/Kaggle disk; the best one
+            # is retained regardless because of load_best_model_at_end.
+            save_total_limit=2,
             load_best_model_at_end=True,
             metric_for_best_model="macro_f1",
             greater_is_better=True,

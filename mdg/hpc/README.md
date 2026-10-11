@@ -42,6 +42,8 @@ threads). Set `ROW_SHARDS` to the number of machines, and give each machine its
 own `SHARD`:
 
 ```bash
+bash mdg/hpc/preflight.sh      # every task must say local or hub, not MISSING
+
 # on every machine, identical except for SHARD — here, 4 machines
 export ROW_SHARDS=8
 DRY_RUN=1 SHARD=0/4 bash mdg/hpc/run_parallel.sh cells        # check sizing first
@@ -143,6 +145,7 @@ understating their attack success rate.
 | `run_parallel.sh` | `train`, `cells` (attack), or `all` — the main runner |
 | `run_one.sh` | One (model × dataset) task; shared by every path |
 | `run_budget.sh` | Work cheapest-first for N hours then stop (capped sessions) |
+| `preflight.sh` | Check every task's weights resolve (local or Hub) before launching |
 | `status.sh` | Progress: trained pairs, units done, overall % |
 | `../scripts/merge_shards.py` | Fold row shards into one result per cell; backfill old F1 |
 | `migrate_results.sh` | Fold older result layouts into the canonical one |

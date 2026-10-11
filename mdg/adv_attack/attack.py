@@ -124,8 +124,13 @@ def load_textattack_dataset(
     with open(jsonl_path) as f:
         records = [json.loads(l) for l in f if l.strip()]
 
-    if max_examples and max_examples > 0:
-        records = records[:max_examples]
+    if max_examples and max_examples > 0 and max_examples < len(records):
+        # Evenly spaced, not the first N. These files are not shuffled: the
+        # first 1000 rows of natquest are 83% NO against 58% overall, and
+        # corr2cause 92% vs 82%, so taking the head would skew every macro F1.
+        # A fixed stride is reproducible and spans the whole file.
+        step = len(records) / max_examples
+        records = [records[int(i * step)] for i in range(max_examples)]
 
     data = []
     for r in records:

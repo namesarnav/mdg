@@ -3,6 +3,15 @@
 #
 # Edit PROJECT if you clone the repo somewhere other than /scratch/$USER/mdg.
 
+# ── Identity ──────────────────────────────────────────────────────────────────
+# Containers and hosted notebooks (Colab, Kaggle) run with a minimal
+# environment where USER is unset. Every caller runs under `set -u`, so an
+# unguarded $USER aborts the whole script before anything starts.
+if [ -z "${USER:-}" ]; then
+  USER="$(id -un 2>/dev/null || echo mdg)"
+  export USER
+fi
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
 # Repo root. Default to the checkout this file lives in (mdg/hpc/env.sh ->
 # two levels up), which is right everywhere; /scratch/$USER/mdg is only used

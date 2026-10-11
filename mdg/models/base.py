@@ -235,8 +235,18 @@ def run(cfg: FinetuneConfig) -> None:
         # The Trainer creates the repo at startup and uploads at the end, so a
         # missing token is not discovered until hours of training are already
         # spent -- and it leaves an empty repo behind that looks trained.
-        from huggingface_hub import HfFolder
-        if not HfFolder.get_token():
+        # get_token() is the modern entry point; HfFolder is the pre-0.19 one
+        # and is gone in huggingface_hub 1.x. Accept either, and treat an
+        # unknown layout as "no token" rather than crashing here.
+        try:
+            from huggingface_hub import get_token as _hf_get_token
+        except ImportError:
+            try:
+                from huggingface_hub import HfFolder
+                _hf_get_token = HfFolder.get_token
+            except ImportError:
+                _hf_get_token = lambda: None
+        if not _hf_get_token():
             raise SystemExit(
                 "[FAIL] --push-to-hub was requested but no credentials were found.\n"
                 "       Fix one of these before training, not after:\n"

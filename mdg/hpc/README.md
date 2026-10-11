@@ -99,6 +99,31 @@ averaging would be quietly wrong. A cell missing any shard is reported and left
 alone rather than merged half-complete. `--backfill` also fills in F1 for older
 runs whose summaries predate the metric, using the perturbed JSONL on disk.
 
+### Train on a GPU, attack on CPU
+
+Measured on a 64-core VM, corr2cause/bert projected **116 hours** of CPU
+training. The same run on a free Colab T4 is 1–3 hours, because training is one
+batched matmul stream. Do not reach for a GPU for the attacks: those are 13M
+sequential adversarial searches, which one T4 would take months to finish while
+a CPU fleet runs 192 of them at once.
+
+One Colab cell:
+
+```python
+!git clone -q https://github.com/namesarnav/mdg.git /content/mdg
+%env HF_TOKEN=hf_xxxxxxxxxxxxx
+!cd /content/mdg && bash mdg/hpc/train_gpu.sh "6 17"
+```
+
+Runtime > Change runtime type > **T4 GPU** first, or the script refuses. It
+installs the dependencies (never torch — the hosted build is matched to the
+driver), fetches the LFS data, trains through the same `run_one.sh` path as the
+cluster, and pushes each model. Kaggle works the same way with a 30h/week quota
+and 12h sessions.
+
+Keep the CPU machines on attacks the whole time; they need no local
+checkpoints, only the Hub copies.
+
 ### Task ids
 
 Tasks 0–10 are bert-base-uncased, 11–21 are roberta-base, in this dataset
@@ -161,6 +186,7 @@ understating their attack success rate.
 | `run_budget.sh` | Work cheapest-first for N hours then stop (capped sessions) |
 | `preflight.sh` | Check every task's weights resolve (local or Hub) before launching |
 | `warm_cache.sh` | Download every recipe's assets once, serially, before the fleet starts |
+| `train_gpu.sh` | Train on Colab/Kaggle/any CUDA box and push to the Hub |
 | `bench_train.py` | Measure this box's CPU training throughput; project hours per task |
 | `status.sh` | Progress: trained pairs, units done, overall % |
 | `../scripts/merge_shards.py` | Fold row shards into one result per cell; backfill old F1 |

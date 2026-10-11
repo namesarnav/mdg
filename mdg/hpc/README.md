@@ -28,7 +28,20 @@ echo 'hf_xxx' > ~/.hf_token && chmod 600 ~/.hf_token
 bash mdg/hpc/02_build_all_splits.sh       # build the <stem>__all.jsonl files
 ```
 
-Train (few workers, many threads each — training scales across threads). Split
+Training on CPU is memory-bandwidth bound, so threads buy far less than cores
+suggest — measured on an 8-core laptop, 1 → 10 threads gave 1.3x, not 10x.
+Measure your own box and get hours per remaining task:
+
+```bash
+poetry run python mdg/hpc/bench_train.py --epochs 2
+```
+
+Run several tasks at once rather than one task with every thread. A single task
+cannot be split, so the largest one sets the floor however many machines you
+have: corr2cause is 206k rows at ~249 tokens, which is 92% of the training cost
+of the whole grid.
+
+Train (several workers, a handful of threads each). Split
 the 22 tasks across machines with `ONLY_TASKS`, and **wait for every machine to
 finish pushing** before attacking, since the attack stage pulls models from the
 Hub:
@@ -146,6 +159,7 @@ understating their attack success rate.
 | `run_one.sh` | One (model × dataset) task; shared by every path |
 | `run_budget.sh` | Work cheapest-first for N hours then stop (capped sessions) |
 | `preflight.sh` | Check every task's weights resolve (local or Hub) before launching |
+| `bench_train.py` | Measure this box's CPU training throughput; project hours per task |
 | `status.sh` | Progress: trained pairs, units done, overall % |
 | `../scripts/merge_shards.py` | Fold row shards into one result per cell; backfill old F1 |
 | `migrate_results.sh` | Fold older result layouts into the canonical one |

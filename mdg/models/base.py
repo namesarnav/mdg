@@ -68,7 +68,11 @@ class FinetuneConfig:
     weight_decay:     float = 0.01
     max_length:       int   = 256
     seed:             int   = 42
-    fp16:             bool  = torch.cuda.is_available()
+    # Mixed precision is resolved in run() by _resolve_precision: T5 was
+    # pretrained in bf16 and diverges to NaN under fp16, so it must not simply
+    # follow cuda availability.
+    fp16:             Optional[bool] = None
+    bf16:             Optional[bool] = None
     early_stopping_patience: int = 3
 
     # Encoder-decoder specific
@@ -188,10 +192,38 @@ def make_compute_metrics_seq2seq(tokenizer, label2id: Dict[str, int]):
 
 # Main entrypoint
 
+def _resolve_precision(cfg: FinetuneConfig) -> tuple[bool, bool]:
+    """(fp16, bf16) for this model and GPU.
+
+    T5 is the reason this is not just `fp16=cuda_available`: it was pretrained
+    in bf16 and its activations overflow fp16's range, which shows up as a loss
+    that goes to NaN a few hundred steps in. bf16 has the same exponent range as
+    fp32, so it is safe; where bf16 is unavailable (T4, V100) T5 must run fp32.
+    """
+    if cfg.fp16 is not None or cfg.bf16 is not None:
+        return bool(cfg.fp16), bool(cfg.bf16)          # explicit wins
+    if not torch.cuda.is_available():
+        return False, False                            # CPU: neither
+    bf16_ok = torch.cuda.is_bf16_supported()
+    is_t5 = "t5" in cfg.model_name.lower()
+    if is_t5:
+        if bf16_ok:
+            return False, True
+        print("  [warn] T5 on a GPU without bf16 — using fp32, since fp16 sends "
+              "T5's loss to NaN.\n"
+              "         An A100 or L4 would run this ~3x faster in bf16.")
+        return False, False
+    return (False, True) if bf16_ok else (True, False)
+
+
 def run(cfg: FinetuneConfig) -> None:
     random.seed(cfg.seed)
     np.random.seed(cfg.seed)
     torch.manual_seed(cfg.seed)
+
+    use_fp16, use_bf16 = _resolve_precision(cfg)
+    if torch.cuda.is_available():
+        print(f"  precision: {'bf16' if use_bf16 else 'fp16' if use_fp16 else 'fp32'}")
 
     label_space = [l.strip().upper() for l in cfg.label_space]
     label2id    = {l: i for i, l in enumerate(label_space)}
@@ -266,7 +298,8 @@ def run(cfg: FinetuneConfig) -> None:
             load_best_model_at_end=True,
             metric_for_best_model="macro_f1",
             greater_is_better=True,
-            fp16=cfg.fp16,
+            fp16=use_fp16,
+            bf16=use_bf16,
             seed=cfg.seed,
             report_to="none",
             **hub_kwargs,
@@ -313,7 +346,8 @@ def run(cfg: FinetuneConfig) -> None:
             greater_is_better=True,
             predict_with_generate=True,
             generation_max_length=cfg.max_target_length,
-            fp16=cfg.fp16,
+            fp16=use_fp16,
+            bf16=use_bf16,
             seed=cfg.seed,
             report_to="none",
             **hub_kwargs,

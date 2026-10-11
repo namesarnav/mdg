@@ -20,13 +20,19 @@ DATASETS=(
 # "module|checkpoint_dir_name|hf_model_id|extra_train_args"
 # checkpoint_dir_name must equal basename(hf_model_id) — that is the directory
 # mdg/models/base*.py writes into.
+# Order matters: resolve_task maps id -> (idx / N_DATASETS, idx % N_DATASETS),
+# so APPEND new models. Inserting one renumbers every later task and orphans
+# the finished results that are keyed by those ids.
+#   bert    0-10
+#   roberta 11-21
+#   t5      22-32
 MODELS=(
   "mdg.models.bert|bert-base-uncased|bert-base-uncased|--epochs 5 --batch 16 --lr 2e-5"
   "mdg.models.roberta|roberta-base|roberta-base|--epochs 5 --batch 16 --lr 2e-5"
+  "mdg.models.t5|t5-base|t5-base|--epochs 5 --batch 16 --lr 3e-4 --head cls"
 )
 
-# Previously run; re-enable by moving back into MODELS above.
-#   "mdg.models.t5|t5-base|t5-base|--epochs 5 --batch 16 --lr 3e-4"
+# Previously run; re-enable by appending to MODELS above.
 #   "mdg.models.llama|Llama-3.2-1B|meta-llama/Llama-3.2-1B|--epochs 3 --batch 4 --lr 2e-4 --lora-r 16 --no-4bit"
 
 N_DATASETS=${#DATASETS[@]}

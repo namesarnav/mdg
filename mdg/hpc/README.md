@@ -6,7 +6,9 @@ TextAttack recipe** against every model on **every data point** of every
 dataset, and consolidates everything into one CSV.
 
 Scale: 365,444 data points × 18 recipes × 2 models = **13.2M example-attacks**
-across **396 cells** (dataset × model × recipe).
+across **594 cells** (11 datasets × 3 models × 18 recipes). Restrict the
+attacks to bert and roberta with `ONLY_TASKS="$(seq -s' ' 0 21)"` if t5 is being
+trained for its own sake rather than attacked.
 
 Work is split two ways, and both are needed:
 
@@ -136,22 +138,22 @@ checkpoints, only the Hub copies.
 
 ### Task ids
 
-Tasks 0–10 are bert-base-uncased, 11–21 are roberta-base, in this dataset
-order (rows = every data point, what the attacks run on):
+Tasks 0–10 are bert-base-uncased, 11–21 are roberta-base, 22–32 are t5-base,
+in this dataset order (rows = every data point, what the attacks run on):
 
-| | dataset | rows | bert | roberta |
-|---|---|---|---|---|
-| | counterbench | 1,320 | 0 | 11 |
-| | ac-reason | 4,000 | 1 | 12 |
-| | bbh-causal-judgement | 4,000 | 2 | 13 |
-| | causalbench_code | 7,856 | 3 | 14 |
-| | causalbench_math | 12,895 | 4 | 15 |
-| | causalbench_text | 37,602 | 5 | 16 |
-| | corr2cause | 207,972 | 6 | 17 |
-| | e-care | 17,050 | 7 | 18 |
-| | fincausal-task1 | 18,749 | 8 | 19 |
-| | natquest | 27,000 | 9 | 20 |
-| | Quriosity | 27,000 | 10 | 21 |
+| | dataset | rows | bert | roberta | t5 |
+|---|---|---|---|---|---|
+| | counterbench | 1,320 | 0 | 11 | 22 |
+| | ac-reason | 4,000 | 1 | 12 | 23 |
+| | bbh-causal-judgement | 4,000 | 2 | 13 | 24 |
+| | causalbench_code | 7,856 | 3 | 14 | 25 |
+| | causalbench_math | 12,895 | 4 | 15 | 26 |
+| | causalbench_text | 37,602 | 5 | 16 | 27 |
+| | corr2cause | 207,972 | 6 | 17 | 28 |
+| | e-care | 17,050 | 7 | 18 | 29 |
+| | fincausal-task1 | 18,749 | 8 | 19 | 30 |
+| | natquest | 27,000 | 9 | 20 | 31 |
+| | Quriosity | 27,000 | 10 | 21 | 32 |
 
 Split *training* by rows, not by task count — corr2cause is 57% of all rows and
 deserves a machine to itself. For 4 machines:

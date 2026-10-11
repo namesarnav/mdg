@@ -28,8 +28,12 @@ echo "  TASKS   : $TASKS"
 python - <<'PY'
 import torch
 if torch.cuda.is_available():
-    p = torch.cuda.get_device_properties(0)
-    print(f"  GPU     : {p.name}, {p.total_memory/1e9:.0f}GB")
+    n = torch.cuda.device_count()
+    for i in range(n):
+        p = torch.cuda.get_device_properties(i)
+        print(f"  GPU {i}   : {p.name}, {p.total_memory/1e9:.0f}GB")
+    if n > 1:
+        print(f"  -> {n} GPUs: training {n} tasks at once, one per GPU.")
 else:
     print("  GPU     : NONE DETECTED — this will be as slow as the CPU boxes.")
     print("            On Colab: Runtime > Change runtime type > T4 GPU.")
@@ -79,7 +83,10 @@ done
 # CPU path because VRAM, not bandwidth, is the limit here.
 echo "[3/3] Training"
 export MDG_RUNTIME=direct
-ONLY_TASKS="$TASKS" JOBS=1 THREADS_PER_JOB=2 \
+# One task per GPU. More than that on a single GPU gains nothing — a bert-base
+# job already saturates it — and risks running out of VRAM, so JOBS is left to
+# run_parallel.sh's GPU count unless explicitly overridden.
+ONLY_TASKS="$TASKS" JOBS="${JOBS:-}" THREADS_PER_JOB=2 \
   TRAIN_ARGS="${TRAIN_ARGS:---epochs 3 --batch 32 --lr 2e-5}" \
   bash mdg/hpc/run_parallel.sh train
 

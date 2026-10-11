@@ -115,6 +115,16 @@ One Colab cell:
 !cd /content/mdg && bash mdg/hpc/train_gpu.sh "6 17"
 ```
 
+Parallel jobs do not help on one GPU — a single bert-base run already saturates
+it, so a second only splits the same cores and may run out of VRAM. The script
+therefore runs **one task per GPU** and works through the list in order. On
+Kaggle's T4 x2 that means two at a time, automatically.
+
+The way to get real parallelism from free tiers is to use both at once: Colab on
+one half of the list, Kaggle on the other. Each task pushes to the Hub as it
+finishes, so the two never collide and a disconnect costs only the task in
+flight.
+
 Runtime > Change runtime type > **T4 GPU** first, or the script refuses. It
 installs the dependencies (never torch — the hosted build is matched to the
 driver), fetches the LFS data, trains through the same `run_one.sh` path as the

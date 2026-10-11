@@ -56,6 +56,7 @@ own `SHARD`:
 
 ```bash
 bash mdg/hpc/preflight.sh      # every task must say local or hub, not MISSING
+bash mdg/hpc/warm_cache.sh     # ~5GB of shared recipe assets, fetched once
 
 # on every machine, identical except for SHARD — here, 4 machines
 export ROW_SHARDS=8
@@ -159,6 +160,7 @@ understating their attack success rate.
 | `run_one.sh` | One (model × dataset) task; shared by every path |
 | `run_budget.sh` | Work cheapest-first for N hours then stop (capped sessions) |
 | `preflight.sh` | Check every task's weights resolve (local or Hub) before launching |
+| `warm_cache.sh` | Download every recipe's assets once, serially, before the fleet starts |
 | `bench_train.py` | Measure this box's CPU training throughput; project hours per task |
 | `status.sh` | Progress: trained pairs, units done, overall % |
 | `../scripts/merge_shards.py` | Fold row shards into one result per cell; backfill old F1 |

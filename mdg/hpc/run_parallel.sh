@@ -119,16 +119,44 @@ run_stage() {
   echo "  JOBLOG  : $joblog"
   echo "========================================================"
 
+  # ONLY_TASKS restricts the run to these ids, which is how the work is split
+  # across machines. Without it, every machine would train the whole grid.
+  local tasks="$LOG_DIR/${stage}-tasks.txt"
+  : > "$tasks"
+  local i
+  for ((i=0; i<N_JOBS; i++)); do
+    [ -n "${ONLY_TASKS:-}" ] && ! grep -qw "$i" <<< "$ONLY_TASKS" && continue
+    echo "$i" >> "$tasks"
+  done
+  local n_pending
+  n_pending=$(wc -l < "$tasks" | tr -d ' ')
+  echo "  RUNNING : $n_pending task(s)${ONLY_TASKS:+ (ONLY_TASKS=$ONLY_TASKS)}"
+  if [ "$n_pending" -eq 0 ]; then
+    echo "  nothing to do — ONLY_TASKS matched no task id in 0..$(( N_JOBS - 1 ))"
+    return 0
+  fi
+  if [ -n "${DRY_RUN:-}" ]; then
+    echo "  DRY_RUN set — not launching. Tasks: $(tr '\n' ' ' < "$tasks")"
+    return 0
+  fi
+
   # {%} is parallel's 1-based slot number → pin slot N to GPU N-1.
   # --halt never: one failing pair must not kill the rest of the grid.
-  seq 0 $(( N_JOBS - 1 )) | parallel \
-    --jobs "$JOBS" \
-    --joblog "$joblog" \
-    --halt never \
-    --line-buffer \
-    --tagstring "[${stage} task {}]" \
-    "CUDA_VISIBLE_DEVICES=\$(( ({%} - 1) % $NGPU )) bash '$HPC_DIR/run_one.sh' $stage {} \
-       > '$LOG_DIR/${stage}-task{}.log' 2>&1"
+  if [ "$HAVE_PARALLEL" = "1" ]; then
+    parallel \
+      --jobs "$JOBS" \
+      --joblog "$joblog" \
+      --halt never \
+      --line-buffer \
+      --tagstring "[${stage} task {}]" \
+      "CUDA_VISIBLE_DEVICES=\$(( ({%} - 1) % $NGPU )) bash '$HPC_DIR/run_one.sh' $stage {} \
+         > '$LOG_DIR/${stage}-task{}.log' 2>&1" :::: "$tasks"
+  else
+    xargs -P "$JOBS" -L1 bash -c \
+      'bash "'"$HPC_DIR"'/run_one.sh" '"$stage"' "$0" \
+         > "'"$LOG_DIR"'/'"$stage"'-task$0.log" 2>&1' \
+      < "$tasks"
+  fi
 
   echo "  Finished $stage. Failures (exit != 0):"
   # joblog columns: Seq Host Starttime Runtime Send Receive Exitval Signal Command

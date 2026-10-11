@@ -199,6 +199,19 @@ def run(cfg: FinetuneConfig) -> None:
     num_labels  = len(label_space)
 
     hub_token = cfg.hub_token or os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+    if cfg.push_to_hub and cfg.hub_model_id and not hub_token:
+        # The Trainer creates the repo at startup and uploads at the end, so a
+        # missing token is not discovered until hours of training are already
+        # spent -- and it leaves an empty repo behind that looks trained.
+        from huggingface_hub import HfFolder
+        if not HfFolder.get_token():
+            raise SystemExit(
+                "[FAIL] --push-to-hub was requested but no credentials were found.\n"
+                "       Fix one of these before training, not after:\n"
+                "         echo 'hf_xxx' > ~/.hf_token && chmod 600 ~/.hf_token\n"
+                "         huggingface-cli login\n"
+                "       Or drop --push-to-hub and upload the checkpoint later."
+            )
     hub_kwargs = dict(
         push_to_hub=cfg.push_to_hub,
         hub_model_id=cfg.hub_model_id if cfg.push_to_hub else None,
@@ -356,4 +369,27 @@ def run(cfg: FinetuneConfig) -> None:
     if cfg.push_to_hub and cfg.hub_model_id:
         print(f"\n  Pushing to Hub: {cfg.hub_model_id} ...")
         trainer.push_to_hub(commit_message="Fine-tuned on causal classification")
-        print(f"  Done → https://huggingface.co/{cfg.hub_model_id}")
+
+        # An interrupted LFS upload leaves a repo holding only .gitattributes,
+        # which reads as a trained model everywhere downstream. Confirm the
+        # weights are really there before calling this a success.
+        try:
+            from huggingface_hub import HfApi
+            files = set(HfApi(token=hub_token).list_repo_files(cfg.hub_model_id))
+        except Exception as e:
+            raise SystemExit(
+                f"[FAIL] pushed {cfg.hub_model_id} but could not verify it: {e}\n"
+                f"       Check https://huggingface.co/{cfg.hub_model_id} by hand."
+            )
+        if "config.json" not in files or not (
+            {"model.safetensors", "pytorch_model.bin"} & files
+        ):
+            raise SystemExit(
+                f"[FAIL] {cfg.hub_model_id} has no weights after the push "
+                f"(files: {sorted(files)}).\n"
+                f"       The local checkpoint is intact — upload it directly:\n"
+                f"         huggingface-cli upload {cfg.hub_model_id} "
+                f"{output_dir} . --exclude 'checkpoint-*/*'"
+            )
+        print(f"  Done → https://huggingface.co/{cfg.hub_model_id}  "
+              f"(verified {len(files)} files)")

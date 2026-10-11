@@ -40,8 +40,17 @@ if ! command -v parallel >/dev/null 2>&1; then
 fi
 # GNU parallel is preferred (joblog, resume); xargs -P is the fallback and is
 # present on every POSIX system.
-HAVE_PARALLEL=1
-command -v parallel >/dev/null 2>&1 || HAVE_PARALLEL=0
+# Must be GNU parallel specifically. Debian/Colab often ship moreutils'
+# `parallel`, which takes the same name but a different CLI entirely — it
+# rejects our options with "parallel: invalid option -- '-'" and runs nothing.
+HAVE_PARALLEL=0
+if command -v parallel >/dev/null 2>&1; then
+  if parallel --version 2>/dev/null | head -1 | grep -qi "GNU parallel"; then
+    HAVE_PARALLEL=1
+  else
+    echo "[INFO] 'parallel' on PATH is not GNU parallel (looks like moreutils)"
+  fi
+fi
 [ "$HAVE_PARALLEL" = "0" ] && echo "[INFO] GNU parallel not found — using xargs -P (no joblog/resume-failed)"
 
 # ── How many at once ──────────────────────────────────────────────────────────
@@ -158,11 +167,24 @@ run_stage() {
       < "$tasks"
   fi
 
-  echo "  Finished $stage. Failures (exit != 0):"
-  # joblog columns: Seq Host Starttime Runtime Send Receive Exitval Signal Command
-  awk 'NR>1 && $7 != 0 {print "    seq " $1 " → exit " $7}' "$joblog" || true
-  echo "  Re-run just the failures with:"
-  echo "    parallel --joblog $joblog --resume-failed --jobs $JOBS ..."
+  echo "  Finished $stage."
+  # The joblog only exists on the GNU parallel path; without it, read the
+  # per-task logs instead of pointing at a file that was never written.
+  if [ "$HAVE_PARALLEL" = "1" ] && [ -f "$joblog" ]; then
+    echo "  Failures (exit != 0):"
+    # joblog columns: Seq Host Starttime Runtime Send Receive Exitval Signal Command
+    awk 'NR>1 && $7 != 0 {print "    seq " $1 " → exit " $7}' "$joblog"
+    echo "  Re-run just the failures with:"
+    echo "    parallel --joblog $joblog --resume-failed --jobs $JOBS ..."
+  else
+    local failed
+    failed=$(grep -l "^\[FAIL\]" "$LOG_DIR/${stage}-task"*.log 2>/dev/null | tr '\n' ' ')
+    if [ -n "$failed" ]; then
+      echo "  Failures — see: $failed"
+    else
+      echo "  No task reported [FAIL]."
+    fi
+  fi
 }
 
 # Fan out over (task, recipe) CELLS rather than tasks: 396 units instead of 22,

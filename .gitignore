@@ -42,3 +42,6 @@ data/level2/corr2cause/train.jsonl
 
 
 mdg/finetune/checkpoints
+# Per-machine run state: each machine writes its own, so tracking these
+# guarantees a conflict on every git pull across the cluster.
+mdg/logs/

@@ -36,6 +36,23 @@ if [ ! -f "$PROJECT/$TRAIN_FILE" ] || [ ! -f "$PROJECT/$TEST_FILE" ]; then
   exit 1
 fi
 
+# mdg/finetune/data/*.jsonl is Git LFS. On a clone where `git lfs pull` has not
+# run, each file is a 3-line pointer, and the first thing to touch it dies in
+# json.loads with "Expecting value: line 1 column 1" — which says nothing about
+# the real cause.
+check_not_lfs_pointer() {
+  local f="$1"
+  if head -c 60 "$f" 2>/dev/null | grep -q "git-lfs.github.com/spec"; then
+    echo "[FAIL] $f is a Git LFS pointer, not data ($(wc -l < "$f" | tr -d ' ') lines)."
+    echo "       Fetch the real files on this machine:"
+    echo "         sudo apt-get install -y git-lfs"
+    echo "         cd $PROJECT && git lfs install && git lfs pull"
+    return 1
+  fi
+}
+check_not_lfs_pointer "$PROJECT/$TRAIN_FILE" || exit 1
+check_not_lfs_pointer "$PROJECT/$TEST_FILE"  || exit 1
+
 TRAIN_COUNT=$(wc -l < "$PROJECT/$TRAIN_FILE")
 TEST_COUNT=$(wc -l < "$PROJECT/$TEST_FILE")
 
@@ -109,6 +126,7 @@ case "$STAGE" in
     # ATTACK_STEM (matrix.sh) decides the file: every data point by default
     # (<stem>__all.jsonl), or the held-out split with ATTACK_SPLIT=holdout.
     ATTACK_FILE="${DATA_DIR}/${ATTACK_STEM}.jsonl"
+    [ -f "$PROJECT/$ATTACK_FILE" ] && { check_not_lfs_pointer "$PROJECT/$ATTACK_FILE" || exit 1; }
     if [ ! -f "$PROJECT/$ATTACK_FILE" ]; then
       echo "[FAIL] Missing attack file: $ATTACK_FILE"
       [ "${ATTACK_SPLIT:-all}" = "all" ] && \

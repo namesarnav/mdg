@@ -42,23 +42,25 @@ threads). Set `ROW_SHARDS` to the number of machines, and give each machine its
 own `SHARD`:
 
 ```bash
-# on every machine, identical except for SHARD
+# on every machine, identical except for SHARD — here, 4 machines
 export ROW_SHARDS=8
-DRY_RUN=1 SHARD=0/8 bash mdg/hpc/run_parallel.sh cells        # check sizing first
-SHARD=0/8 nohup bash mdg/hpc/run_parallel.sh cells > ~/attack.log 2>&1 &
+DRY_RUN=1 SHARD=0/4 bash mdg/hpc/run_parallel.sh cells        # check sizing first
+SHARD=0/4 nohup bash mdg/hpc/run_parallel.sh cells > ~/attack.log 2>&1 &
 ```
 
-With `ROW_SHARDS=k` and `SHARD=i/k` each machine runs every recipe over rows
-i, i+k, i+2k, … — an even split by construction, so no machine inherits
-corr2cause while another gets counterbench. Units are started biggest-first so
+Each machine then takes an exactly equal quarter of every dataset, so no
+machine inherits corr2cause while another gets counterbench. Eight row shards
+across four machines rather than four is deliberate: the units are half the
+size, so a machine killed mid-unit loses half as much work. Units are started biggest-first so
 the run does not end with one huge unit holding up an otherwise idle box.
 Workers are sized automatically from cores and RAM: 64 cores / 256GB gives 64.
 Everything resumes — finished units are skipped, so re-run after any
 interruption.
 
-`ROW_SHARDS` and `SHARD` do not have to match. More shards than machines is
-fine and gives finer-grained resume; what must never change mid-run is
-`ROW_SHARDS`, because the shard count is baked into the output filenames.
+`ROW_SHARDS` and `SHARD` are independent: `ROW_SHARDS` is how finely the rows
+are cut, `SHARD` is which cuts this machine takes. What must never change
+mid-run is `ROW_SHARDS`, because the shard count is baked into the output
+filenames — a half-finished grid with mixed shard counts cannot be merged.
 
 Monitor with `ROW_SHARDS=8 bash mdg/hpc/status.sh`.
 
@@ -101,18 +103,18 @@ order (rows = every data point, what the attacks run on):
 | | Quriosity | 27,000 | 10 | 21 |
 
 Split *training* by rows, not by task count — corr2cause is 57% of all rows and
-deserves a machine to itself. For 8 machines:
+deserves a machine to itself. For 4 machines:
 
 | VM | `ONLY_TASKS` | `JOBS` | `THREADS_PER_JOB` | rows |
 |---|---|---|---|---|
 | 1 | `6` | 1 | 64 | 208k |
 | 2 | `17` | 1 | 64 | 208k |
-| 3 | `5 9` | 2 | 32 | 65k |
-| 4 | `16 20` | 2 | 32 | 65k |
-| 5 | `7 8 10` | 3 | 21 | 63k |
-| 6 | `18 19 21` | 3 | 21 | 63k |
-| 7 | `0 1 2 3 4` | 5 | 12 | 30k |
-| 8 | `11 12 13 14 15` | 5 | 12 | 30k |
+| 3 | `0 1 2 3 4 5 7 8 9 10` | 5 | 12 | 157k |
+| 4 | `11 12 13 14 15 16 18 19 20 21` | 5 | 12 | 157k |
+
+VMs 1 and 2 take corr2cause (bert and roberta); 3 and 4 take everything else,
+split by model. For 8 machines, halve the lists on VMs 3 and 4 and give
+corr2cause's two tasks a machine each with `TRAIN_ARGS="--epochs 2"`.
 
 The *attacks* need no such care — `ROW_SHARDS` splits every dataset evenly.
 
@@ -121,14 +123,15 @@ The *attacks* need no such care — `ROW_SHARDS` splits every dataset evenly.
 One 64-core machine is ~64 workers, and the whole grid is roughly 36,000
 core-hours at the measured ~10s per example-attack:
 
-| Machines (64 cores each) | Workers | Rough wall clock |
-|---|---|---|
-| 4 | 256 | ~6 days |
-| 8 | 512 | ~3 days |
-| 16 | 1024 | ~1.5 days |
+| Machines (64 cores each) | Workers | Compute | Realistic |
+|---|---|---|---|
+| 4 | 256 | ~6 days | ~1.5 weeks |
+| 8 | 512 | ~3 days | ~1 week |
+| 16 | 1024 | ~1.5 days | ~3 days |
 
-Set `ROW_SHARDS` to the machine count. These are compute estimates; plan for
-roughly double in practice.
+`QUERY_BUDGET=200` is the one lever that changes this materially — it caps the
+search per example and roughly halves the slowest recipes, at the cost of
+understating their attack success rate.
 
 ## Scripts
 

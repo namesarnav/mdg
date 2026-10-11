@@ -36,14 +36,21 @@ def rows(stem: str) -> int:
     return sum(1 for _ in p.open()) if p.exists() else 0
 
 
-def cell_state(stem: str, model: str, n_recipes: int) -> tuple[int, int]:
-    """(finished recipes, recipes with shards still merging) for one cell."""
+def cell_state(stem: str, model: str) -> tuple[int, int, int]:
+    """(finished recipes, recipes with shards in flight, shard files written).
+
+    A recipe is only finished once merge_shards has written <recipe>.jsonl. In
+    between there are <recipe>.sh<i>of<n>.jsonl files, which is what the fleet
+    produces for hours before anything counts as done -- so they are reported
+    separately rather than rounded down to zero.
+    """
     d = RESULTS / f"namesarnav_{stem}__test" / model
     if not d.is_dir():
-        return 0, 0
+        return 0, 0, 0
+    shards = list(d.glob("*.sh*of*.jsonl"))
     done = {p.stem for p in d.glob("*.jsonl") if ".sh" not in p.name}
-    part = {p.name.split(".sh")[0] for p in d.glob("*.sh*of*.jsonl")}
-    return len(done), len(part - done)
+    part = {p.name.split(".sh")[0] for p in shards}
+    return len(done), len(part - done), len(shards)
 
 
 def main() -> None:
@@ -54,17 +61,30 @@ def main() -> None:
     RECIPES = recipes()
     nr = len(RECIPES)
 
+    # "Could not reach the Hub" and "this model was never trained" are
+    # different answers. Conflating them printed NEEDS TRAINING against 33
+    # models that were all sitting on the Hub.
+    hub_broken = "--no-hub passed" if args.no_hub else None
     hub_state = lambda r: (False, "skipped")
     if not args.no_hub:
         import sys
         sys.path.insert(0, str(Path(__file__).parent))
         from preflight_check import hub_state  # noqa: F811
+        ok, why = hub_state("namesarnav/counterbench-bert-base-uncased")
+        if not ok and ("not installed" in why or "unreachable" in why):
+            hub_broken = why
 
     print(f"\n  {len(DATASETS)} datasets x {len(MODELS)} models = "
-          f"{len(DATASETS)*len(MODELS)} tasks, {nr} recipes each\n")
+          f"{len(DATASETS)*len(MODELS)} tasks, {nr} recipes each")
+    if hub_broken:
+        print(f"\n  [!] Hub not checked: {hub_broken}")
+        print("      'weights' below reflects LOCAL checkpoints only -- a blank")
+        print("      does not mean untrained. Run it in the project env:")
+        print("        .venv/bin/python mdg/hpc/status.py")
+    print()
     print(f"  {'id':>3} {'dataset':<24}{'model':<19}{'test':>6} "
-          f"{'weights':<9}{'attacked':>10}  state")
-    print("  " + "-" * 86)
+          f"{'weights':<9}{'attacked':>10}{'shards':>8}  state")
+    print("  " + "-" * 94)
 
     ready, missing, attack_todo, full = [], [], [], []
     for mi, model in enumerate(MODELS):
@@ -77,25 +97,25 @@ def main() -> None:
             else:
                 ok, _ = hub_state(f"namesarnav/{stem}-{model}")
                 w = "hub" if ok else "--"
-            done, part = cell_state(stem, model, nr)
-            if ok:
-                ready.append(task)
-                if done < nr:
-                    attack_todo.append(task)
-                else:
-                    full.append(task)
-                state = "DONE" if done >= nr else (
-                    f"{part} merging" if part else "attack pending" if not done
-                    else "attacking")
+            done, part, nshard = cell_state(stem, model)
+            if ok or hub_broken:
+                if ok:
+                    ready.append(task)
+                    (attack_todo if done < nr else full).append(task)
+                state = ("DONE" if done >= nr else
+                         f"{part} in flight" if part else
+                         "attack pending" if not done else "attacking")
             else:
                 missing.append(task)
                 state = "NEEDS TRAINING"
             print(f"  {task:>3} {stem:<24}{model:<19}{rows(stem):>6} "
-                  f"{w:<9}{f'{done}/{nr}':>10}  {state}")
+                  f"{w:<9}{f'{done}/{nr}':>10}{nshard or '':>8}  {state}")
 
     print("  " + "-" * 86)
+    total_shards = sum(cell_state(d, m)[2] for m in MODELS for d in DATASETS)
     print(f"  trained {len(ready)}/{len(DATASETS)*len(MODELS)}   "
-          f"attacks complete {len(full)}/{len(ready)} of the trained cells")
+          f"attacks complete {len(full)}/{len(ready)} of the trained cells   "
+          f"shard files on this machine: {total_shards}")
     if missing:
         print(f'\n  TRAIN_TASKS="{" ".join(map(str, missing))}"')
     if attack_todo:

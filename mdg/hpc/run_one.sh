@@ -22,8 +22,16 @@ resolve_task "$TASK_ID"
 DATA_DIR="mdg/finetune/data"
 TRAIN_FILE="${DATA_DIR}/${STEM}__train.jsonl"
 TEST_FILE="${DATA_DIR}/${STEM}__test.jsonl"
-CKPT_ROOT="mdg/finetune/checkpoints/${STEM}"
+# MDG_CKPT_ROOT moves checkpoints off the boot disk — on Colab, onto Drive.
+# Relative paths stay relative to $PROJECT, which is what everything else uses.
+CKPT_ROOT="${MDG_CKPT_ROOT:-mdg/finetune/checkpoints}/${STEM}"
 CKPT="${CKPT_ROOT}/${MODEL_NAME}"
+# MDG_CKPT_ROOT may be absolute (a Drive mount), in which case "$PROJECT/$CKPT"
+# would be nonsense. CKPT_ABS is what every filesystem test below uses.
+case "$CKPT" in
+  /*) CKPT_ABS="$CKPT" ;;
+  *)  CKPT_ABS="$PROJECT/$CKPT" ;;
+esac
 
 echo "========================================================"
 echo "  STAGE   : $STAGE   task $TASK_ID / $(( N_JOBS - 1 ))"
@@ -59,7 +67,7 @@ TEST_COUNT=$(wc -l < "$PROJECT/$TEST_FILE")
 case "$STAGE" in
 
   train)
-    if [ -f "$PROJECT/$CKPT/config.json" ]; then
+    if [ -f "$CKPT_ABS/config.json" ]; then
       echo "[SKIP] Checkpoint exists: $CKPT"
       exit 0
     fi
@@ -83,7 +91,18 @@ case "$STAGE" in
       --results-csv  'mdg/finetune/train_results.csv' \
       --dataset-name '$DATASET_STEM'"
     STATUS=$?
-    [ "$STATUS" -eq 0 ] && echo "[OK] → https://huggingface.co/$HUB_ID"
+    if [ "$STATUS" -eq 0 ]; then
+      echo "[OK] → https://huggingface.co/$HUB_ID"
+      # The per-epoch checkpoint-*/ dirs carry optimizer state and run ~1.2GB
+      # each; two of them per task fills a 70GB Colab disk after a handful of
+      # tasks. The final weights sit in $CKPT and are already on the Hub, so
+      # these are pure resume-scratch. Keep them with MDG_KEEP_CHECKPOINTS=1.
+      if [ "${MDG_KEEP_CHECKPOINTS:-0}" != "1" ]; then
+        freed=$(du -sh "$CKPT_ABS"/checkpoint-* 2>/dev/null | tail -1 | cut -f1)
+        rm -rf "$CKPT_ABS"/checkpoint-*
+        [ -n "$freed" ] && echo "  freed checkpoint-*/ (last was $freed)"
+      fi
+    fi
     ;;
 
   attack)
@@ -117,7 +136,7 @@ case "$STAGE" in
       exit 0
     fi
     # Prefer the local checkpoint; fall back to the Hub copy from training.
-    if [ -f "$PROJECT/$CKPT/config.json" ]; then
+    if [ -f "$CKPT_ABS/config.json" ]; then
       MODEL_REF="$CKPT"
     else
       echo "[INFO] No local checkpoint — using Hub model $HUB_ID"

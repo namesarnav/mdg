@@ -57,6 +57,27 @@ export HF_TOKEN
 export HUGGINGFACE_TOKEN="$HF_TOKEN"
 echo "$HF_TOKEN" > "$HOME/.hf_token" && chmod 600 "$HOME/.hf_token"
 
+# ── Disk ──────────────────────────────────────────────────────────────────────
+# A hosted runtime gives you ~70GB and no warning before it fills. The HF cache
+# (one pretrained model per task) and the per-epoch checkpoints are what eat it.
+# MDG_DRIVE points both at mounted Drive instead:
+#   from google.colab import drive; drive.mount('/content/drive')
+#   MDG_DRIVE=/content/drive/MyDrive/mdg bash mdg/hpc/train_gpu.sh "28"
+if [ -n "${MDG_DRIVE:-}" ]; then
+  if [ ! -d "$MDG_DRIVE" ] && ! mkdir -p "$MDG_DRIVE" 2>/dev/null; then
+    echo "[FAIL] MDG_DRIVE=$MDG_DRIVE does not exist and cannot be created."
+    echo "       Mount Drive first:  from google.colab import drive"
+    echo "                           drive.mount('/content/drive')"
+    exit 1
+  fi
+  mkdir -p "$MDG_DRIVE/cache" "$MDG_DRIVE/checkpoints"
+  export MDG_CACHE_ROOT="$MDG_DRIVE/cache"
+  export MDG_CKPT_ROOT="$MDG_DRIVE/checkpoints"
+  echo "  DRIVE   : $MDG_DRIVE (cache + checkpoints)"
+fi
+echo "  DISK    : $(df -h "${MDG_DRIVE:-$PROJECT}" | awk 'NR==2{print $4" free of "$2}')"
+echo "========================================================"
+
 # ── Dependencies ──────────────────────────────────────────────────────────────
 # torch is deliberately NOT installed: the hosted image ships a build matched to
 # its CUDA driver, and replacing it usually breaks GPU support. textattack is
@@ -86,9 +107,20 @@ export MDG_RUNTIME=direct
 # One task per GPU. More than that on a single GPU gains nothing — a bert-base
 # job already saturates it — and risks running out of VRAM, so JOBS is left to
 # run_parallel.sh's GPU count unless explicitly overridden.
+# run_parallel.sh sends each task to its own log so parallel jobs do not
+# interleave, which in a notebook means the cell prints nothing until it ends.
+# Run it in the background and tail a progress table in the foreground instead.
 ONLY_TASKS="$TASKS" JOBS="${JOBS:-}" THREADS_PER_JOB=2 \
   TRAIN_ARGS="${TRAIN_ARGS:---epochs 3 --batch 32 --lr 2e-5}" \
-  bash mdg/hpc/run_parallel.sh train
+  bash mdg/hpc/run_parallel.sh train &
+TRAIN_PID=$!
+
+if [ "${WATCH:-1}" = "1" ]; then
+  # Give run_parallel.sh time to create the logs this reads.
+  sleep 25
+  python mdg/hpc/watch_train.py $TASKS --follow --every "${WATCH_EVERY:-60}" || true
+fi
+wait "$TRAIN_PID"
 
 echo ""
 echo "  Per-task logs: $PROJECT/mdg/logs/train-task*.log"

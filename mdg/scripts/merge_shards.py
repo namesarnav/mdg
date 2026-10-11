@@ -137,6 +137,17 @@ def merge_dir(run_dir: Path, keep_shards: bool) -> int:
             for r in rows:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
         summary = summarize(recipe, rows)
+        # summarize() works from per-example rows, which do not carry the
+        # search cap the run used. Lift it off a shard summary so the merged
+        # record still says what setting produced these numbers.
+        for q in sorted(parts):
+            sj = q.with_name(q.name[:-len(".jsonl")] + "_summary.json")
+            if sj.exists():
+                try:
+                    summary["query_budget"] = json.loads(sj.read_text()).get("query_budget")
+                except json.JSONDecodeError:
+                    pass
+                break
         (run_dir / f"{recipe}_summary.json").write_text(json.dumps(summary, indent=2))
 
         if not keep_shards:

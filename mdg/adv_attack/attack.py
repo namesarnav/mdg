@@ -316,6 +316,10 @@ def run_recipe(
         "recipe":              recipe_name,
         "row_shard":           out_suffix.lstrip(".") or None,
         "num_examples":        n_total,
+        # The search cap this ran under. Success rates are only comparable
+        # between cells that shared one, so it belongs in the record rather
+        # than in someone's memory of how the fleet was launched.
+        "query_budget":        query_budget,
         # F1 on the model's predictions over the ORIGINAL (unperturbed) texts
         "clean_micro_f1":      _f1(golds, clean_preds, "micro"),
         "clean_macro_f1":      _f1(golds, clean_preds, "macro"),

@@ -32,7 +32,7 @@ DATASETS = [
 MODELS = ["bert-base-uncased", "roberta-base"]
 
 
-def seq_stats(stem: str, tok, sample: int = 300) -> tuple[int, float]:
+def seq_stats(stem: str, tok, sample: int = 300, warned: set | None = None) -> tuple[int, float]:
     """(train rows, mean token length) — padding is dynamic, so the mean
     length is what drives cost, not max_length."""
     p = DATA / f"namesarnav_{stem}__train.jsonl"
@@ -49,11 +49,28 @@ def seq_stats(stem: str, tok, sample: int = 300) -> tuple[int, float]:
             lens.append(min(len(tok(json.loads(l)["text"])["input_ids"]), 256))
         except (json.JSONDecodeError, KeyError):
             continue
-    return len(lines), statistics.mean(lens) if lens else 0.0
+    if not lens:
+        # Rows exist but none carry a usable "text" field, so the file is not
+        # the normalised {text, label} form the training code expects.
+        try:
+            keys = sorted(json.loads(lines[0]).keys())
+        except json.JSONDecodeError:
+            keys = ["<not JSON>"]
+        if warned is not None and str(p) in warned:
+            return 0, 0.0
+        if warned is not None:
+            warned.add(str(p))
+        print(f"  [warn] {p} has {len(lines)} rows but no usable 'text' field "
+              f"(fields: {keys}).\n"
+              f"         Rebuild it with: bash mdg/hpc/01_prepare_data.sh")
+        return 0, 0.0
+    return len(lines), statistics.mean(lens)
 
 
 def bench(model_name: str, seqlen: int, threads: int, batch: int, steps: int = 4) -> float:
     """Examples per second for one optimizer step at this shape."""
+    if seqlen < 1 or batch < 1:
+        raise ValueError(f"bad benchmark shape: batch={batch} seqlen={seqlen}")
     from transformers import AutoModelForSequenceClassification
     torch.set_num_threads(threads)
     m = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)
@@ -94,6 +111,7 @@ def main() -> None:
 
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained("bert-base-uncased")
+    warned: set[str] = set()
 
     # Which pairs still need training? A pair already pushed to the Hub counts
     # as done even with no local checkpoint, since that is what the attacks use.
@@ -104,6 +122,7 @@ def main() -> None:
         from preflight_check import hub_state as hub_ok
 
     todo = []
+    skipped_no_data: set[str] = set()
     for mi, model in enumerate(MODELS):
         for di, stem in enumerate(DATASETS):
             task = mi * len(DATASETS) + di
@@ -112,16 +131,29 @@ def main() -> None:
                 continue
             if hub_ok(f"namesarnav/{stem}-{model}")[0]:
                 continue
-            rows, mean_len = seq_stats(stem, tok)
+            rows, mean_len = seq_stats(stem, tok, warned=warned)
             if rows:
                 todo.append((task, stem, model, rows, mean_len))
+            else:
+                skipped_no_data.add(stem)
+
+    if not todo:
+        if skipped_no_data:
+            print(f"\n  No task could be sized: {len(skipped_no_data)} dataset(s) have "
+                  f"no usable splits.\n  Build them first:\n"
+                  f"    bash mdg/hpc/01_prepare_data.sh\n"
+                  f"    bash mdg/hpc/02_build_all_splits.sh\n")
+        else:
+            print("\n  Nothing left to train: every pair has a local checkpoint or "
+                  "Hub weights.\n  (Add --local-only to ignore the Hub.)\n")
+        return
 
     print(f"\n  machine: {cores} cores, torch default {torch.get_num_threads()} threads")
     print(f"  benchmarking {args.model}, batch {args.batch}\n")
 
     # Benchmark at the shortest and longest shape that actually occurs.
-    lens = sorted({int(round(l / 8) * 8) for _, _, _, _, l in todo} or {128})
-    probe = sorted({max(8, lens[0]), lens[-1]})
+    lens = sorted({max(8, int(round(l / 8) * 8)) for _, _, _, _, l in todo} or {128})
+    probe = sorted({lens[0], lens[-1]})
     rates: dict[tuple[int, int], float] = {}
     print(f"  {'threads':>8} {'seqlen':>7} {'ex/s':>9} {'ex/s/thread':>13} {'scaling':>9}")
     print("  " + "-" * 50)

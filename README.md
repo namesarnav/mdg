@@ -173,22 +173,48 @@ Each run produces two output files:
 ## Project Structure
 
 ```
-mdg/
-├── pyproject.toml              # Poetry config and dependencies
-├── mdg/                        # Main package
-│   ├── experiment_runner.py    # Entry point — run this
-│   ├── registry.py             # Component registration system
-│   ├── datamodels.py           # Pydantic data models
-│   ├── .env                    # API keys (never commit this)
-│   ├── exp_configs/            # YAML experiment configs
-│   ├── dataset_loaders/        # Dataset loader classes
-│   ├── methods/                # Model wrapper classes + prompts
-│   │   ├── zero_shot/
-│   │   ├── few_shot/
-│   │   └── prompts/
-│   ├── evaluators/             # Evaluation logic
-│   ├── metrics/                # F1, partial span, classification metrics
-│   └── scripts/                # Data creation / preprocessing scripts
+.
+├── pyproject.toml / poetry.lock   # Poetry config and locked dependencies
+├── .python-version                # 3.11.9 (pyenv)
+├── data/                          # Raw source data
+└── mdg/                           # Main package
+    ├── experiment_runner.py       # LLM prompting experiments — entry point
+    ├── registry.py                # Component registration system
+    ├── datamodels.py              # Pydantic data models
+    ├── .env                       # API keys (never commit this)
+    ├── exp_configs/               # YAML experiment configs
+    ├── dataset_loaders/           # Dataset loader classes
+    ├── methods/                   # Prompting methods (zero_shot/, few_shot/, prompts/)
+    ├── evaluators/                # Evaluation logic
+    ├── metrics/                   # F1, partial span, classification metrics
+    ├── models/                    # Fine-tuning wrappers (bert, roberta, t5, ...)
+    ├── finetune/                  # Train/test splits and checkpoints
+    ├── adv_attack/                # TextAttack harness and results
+    ├── synthetic/                 # Synthetic data generation
+    ├── hpc/                       # Fleet orchestration — see mdg/hpc/README.md
+    └── scripts/                   # Data prep, shard merging, consolidation
+```
+
+Each of `hpc/`, `scripts/` and `adv_attack/` has a `legacy/` subdirectory
+holding superseded scripts and result layouts. Nothing in a `legacy/` folder is
+read by the current pipeline.
+
+---
+
+## Fine-tuning and adversarial attacks
+
+The prompting experiments above are one phase of the project. The fine-tuning
+and TextAttack grid (3 models × 11 datasets × 18 attack recipes) is driven
+entirely from `mdg/hpc/` — start at [`mdg/hpc/README.md`](mdg/hpc/README.md).
+
+```bash
+# bare VM → working checkout
+curl -fsSL https://raw.githubusercontent.com/namesarnav/mdg/main/mdg/hpc/bootstrap_vm.sh | bash
+
+cd ~/mdg
+bash mdg/hpc/warm_cache.sh                      # one-time, serial asset download
+JOBS=64 SHARD=0/3 bash mdg/hpc/run_parallel.sh cells
+.venv/bin/python mdg/hpc/status.py              # progress
 ```
 
 ---

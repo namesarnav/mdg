@@ -37,7 +37,29 @@ CUDA in fp16 automatically when a GPU is present.
 ```
 
 Results are written to **local disk** and rsynced to Drive **every 3 minutes**,
-plus once after every unit and once on exit.
+after every unit, and on exit.
+
+**Every file is kept**, not just the summaries:
+
+| File | What it is |
+|---|---|
+| `<recipe>.sh<i>of<n>.jsonl` | **one line per attacked example** — gold label, original and perturbed text, both predictions, query count. The experimental record. |
+| `<recipe>.sh<i>of<n>_summary.json` | ASR, clean and attacked micro/macro F1 for that shard |
+| `all_summaries*.json` | every recipe's summary for that cell |
+| `attack_results.csv` | one appended row per finished cell |
+| `logs/colab-run-shard<i>of<n>.log` | full output, per session |
+| `logs/mirror-errors.log` | **check this** — empty means every copy succeeded |
+
+`run.sh` prints a count every 10 units and at the end, so you can see it rather
+than assume it:
+
+```
+saved: 412 jsonl / 406 summaries local  ->  412 jsonl / 406 summaries on Drive
+```
+
+If Drive is behind local it says so and points at `mirror-errors.log`. A
+`.jsonl` with no matching `_summary.json` is a unit that was interrupted — its
+partial records are still kept, and the unit re-runs next session.
 
 They are deliberately *not* symlinked into Drive. `attack.py` holds the
 per-example `.jsonl` open for the whole unit (`attack.py:267`), and Drive's

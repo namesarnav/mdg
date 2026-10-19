@@ -117,12 +117,36 @@ human() { printf '%dh%02dm' $(( $1 / 3600 )) $(( ($1 % 3600) / 60 )); }
 # rsync of CLOSED files, which Drive's FUSE mount handles correctly, instead of
 # writing the live .jsonl straight into Drive where it stays invisible until the
 # unit ends.
+MIRROR_ERR="$MDG_DRIVE/logs/mirror-errors.log"
+
 mirror_to_drive() {
-  mkdir -p "$MDG_DRIVE/results"
-  rsync -a mdg/adv_attack/results/ "$MDG_DRIVE/results/" 2>/dev/null || \
-    echo "  [WARN] mirror to Drive failed" >&2
-  # cp, not rsync: the log is open, and a copy of a growing file is fine.
-  cp -f "$RUN_LOG" "$MDG_DRIVE/logs/" 2>/dev/null || true
+  mkdir -p "$MDG_DRIVE/results" "$MDG_DRIVE/logs"
+  # -a keeps everything under results/: the per-example <recipe>.shXofN.jsonl
+  # (the actual experimental record), <recipe>.shXofN_summary.json, and
+  # all_summaries*.json. Errors are logged, never swallowed -- a silent mirror
+  # failure is how a session ends with nothing on Drive.
+  rsync -a mdg/adv_attack/results/ "$MDG_DRIVE/results/" 2>>"$MIRROR_ERR" || \
+    echo "[$(date -Is)] rsync results failed" >> "$MIRROR_ERR"
+  for f in mdg/adv_attack/attack_results.csv mdg/results/consolidated.csv; do
+    [ -f "$f" ] && { cp -f "$f" "$MDG_DRIVE/" 2>>"$MIRROR_ERR" || true; }
+  done
+  # cp, not rsync: the log is still open, and a copy of a growing file is fine.
+  cp -f "$RUN_LOG" "$MDG_DRIVE/logs/" 2>>"$MIRROR_ERR" || true
+}
+
+# Counts, so "is it saving the jsonl" is answerable by looking rather than
+# guessing. Local vs Drive, both kinds of file.
+mirror_report() {
+  local lj ls dj ds
+  lj=$(find mdg/adv_attack/results -name '*.jsonl' 2>/dev/null | wc -l)
+  ls=$(find mdg/adv_attack/results -name '*_summary.json' 2>/dev/null | wc -l)
+  dj=$(find "$MDG_DRIVE/results" -name '*.jsonl' 2>/dev/null | wc -l)
+  ds=$(find "$MDG_DRIVE/results" -name '*_summary.json' 2>/dev/null | wc -l)
+  printf '  saved: %s jsonl / %s summaries local  ->  %s jsonl / %s summaries on Drive\n' \
+    "$lj" "$ls" "$dj" "$ds"
+  if [ "$dj" -lt "$lj" ] || [ "$ds" -lt "$ls" ]; then
+    echo "  [WARN] Drive is behind local — see $MIRROR_ERR" >&2
+  fi
 }
 ( while true; do sleep 180; mirror_to_drive; done ) &
 MIRROR_PID=$!
@@ -228,6 +252,7 @@ while IFS=' ' read -r task recipe rowshard; do
     | grep --line-buffered -E "attack split|it/s|s/it|\[OK\]|\[FAIL\]|SKIP|Traceback|Error" || true
   done_n=$(( done_n + 1 ))
   mirror_to_drive
+  [ $(( done_n % 10 )) -eq 0 ] && mirror_report
 done < <(grep -v '^#' "$PENDING" | head -n 100000)
 rm -f "$PENDING"
 
@@ -235,6 +260,15 @@ mirror_to_drive
 kill "$MIRROR_PID" 2>/dev/null || true
 
 echo
+echo "════════════════════════════════════════════════════════"
 echo "  completed this session : $done_n unit(s)"
-echo "  results on Drive       : $MDG_DRIVE/results"
+mirror_report
+echo "  per-example records    : $MDG_DRIVE/results/**/<recipe>.sh<i>of<n>.jsonl"
+echo "  summaries              : $MDG_DRIVE/results/**/<recipe>.sh<i>of<n>_summary.json"
+echo "  log                    : $MDG_DRIVE/logs/$(basename "$RUN_LOG")"
+if [ -s "$MIRROR_ERR" ]; then
+  echo "  [WARN] mirror errors   : $MIRROR_ERR"
+  tail -5 "$MIRROR_ERR"
+fi
 echo "  re-run this cell to continue"
+echo "════════════════════════════════════════════════════════"

@@ -66,18 +66,17 @@ Identical on all three VMs, overridable by environment variable:
 
 | Variable | Default | |
 |---|---|---|
-| `NUM_EXAMPLES` | 500 | test examples per dataset |
-| `QUERY_BUDGET` | 200 | max model queries per example |
-| `ROW_SHARDS` | 8 | **must be identical on every VM** |
+| `ROW_SHARDS` | 64 | **must be identical on every VM** |
 | `JOBS` | `nproc` | concurrent workers |
+
+There is no example cap and no query budget. The run covers the **complete test
+split** of every dataset with unlimited search depth, and both knobs are
+explicitly `unset` inside the script so a stray value in your shell cannot cap
+it.
 
 `ROW_SHARDS` is baked into the output filenames (`<recipe>.sh3of8.jsonl`). A
 cell attacked with a different count on one VM cannot be merged with the same
 cell from another.
-
-```bash
-NUM_EXAMPLES=1000 QUERY_BUDGET=500 bash vm1.sh    # fuller run, ~3x slower
-```
 
 ## Re-running
 

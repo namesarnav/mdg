@@ -17,9 +17,10 @@ set -euo pipefail
 # ── what this VM runs ────────────────────────────────────────────────────────
 SHARD_INDEX=2                  # 0-based; VM3 takes slice 2 of 3
 SHARD_TOTAL=3
-NUM_EXAMPLES="${NUM_EXAMPLES:-500}" # test examples per dataset
-QUERY_BUDGET="${QUERY_BUDGET:-200}" # max model queries per example
-ROW_SHARDS="${ROW_SHARDS:-8}"       # row slices per cell; MUST match the other VMs
+# No caps. The COMPLETE test split, every example, unlimited search depth.
+# NUM_EXAMPLES and QUERY_BUDGET are explicitly unset below so that an inherited
+# value from the shell cannot silently cap the run.
+ROW_SHARDS="${ROW_SHARDS:-64}"      # row slices per cell; MUST match the other VMs
 JOBS="${JOBS:-$(nproc)}"            # one worker per core
 REPO="${REPO:-https://github.com/namesarnav/mdg.git}"
 PROJECT="$HOME/mdg"
@@ -160,7 +161,8 @@ bash mdg/hpc/warm_cache.sh 2>&1 | tee -a "$ARCHIVE/warm_cache.log" | tail -5
 # ── 9. launch ────────────────────────────────────────────────────────────────
 say "launching"
 export ATTACK_SPLIT=holdout
-export NUM_EXAMPLES QUERY_BUDGET ROW_SHARDS
+unset NUM_EXAMPLES QUERY_BUDGET
+export ROW_SHARDS
 export MDG_LOG_DIR="$PROJECT/mdg/logs"
 export MDG_KEEP_CHECKPOINTS=1          # never delete anything
 mkdir -p "$MDG_LOG_DIR" "$ARCHIVE"
@@ -171,8 +173,9 @@ tmux kill-session -t mdg-status  2>/dev/null || true
 
 # attacks: run_parallel fans out to $JOBS concurrent workers inside this session
 tmux new-session -d -s mdg-attack -c "$PROJECT" \
-  "ATTACK_SPLIT=holdout NUM_EXAMPLES=$NUM_EXAMPLES QUERY_BUDGET=$QUERY_BUDGET \
-   ROW_SHARDS=$ROW_SHARDS MDG_LOG_DIR='$MDG_LOG_DIR' MDG_KEEP_CHECKPOINTS=1 \
+  "unset NUM_EXAMPLES QUERY_BUDGET; \
+   ATTACK_SPLIT=holdout ROW_SHARDS=$ROW_SHARDS \
+   MDG_LOG_DIR='$MDG_LOG_DIR' MDG_KEEP_CHECKPOINTS=1 \
    JOBS=$JOBS SHARD=$SHARD_INDEX/$SHARD_TOTAL \
    bash mdg/hpc/run_parallel.sh cells 2>&1 | tee -a '$ARCHIVE/attack.log'"
 
@@ -223,8 +226,8 @@ cat <<EOF
 ════════════════════════════════════════════════════════════════
   VM3 running — shard $SHARD_INDEX/$SHARD_TOTAL
 ════════════════════════════════════════════════════════════════
-  examples/dataset : $NUM_EXAMPLES
-  query budget     : $QUERY_BUDGET
+  examples/dataset : ALL (complete test split, no cap)
+  query budget     : unlimited
   row shards       : $ROW_SHARDS   (must be identical on all VMs)
   workers          : $JOBS
   results          : $PROJECT/mdg/adv_attack/results/

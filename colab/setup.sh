@@ -45,41 +45,6 @@ say "python dependencies"
 pip install -q "textattack==0.3.11" "transformers>=4.46,<5" accelerate \
   sentencepiece peft "datasets>=3.0" scikit-learn 2>&1 | tail -2 || true
 
-say "NLTK corpora"
-# TextAttack recipes build their constraints from NLTK data at attack time, not
-# at import. Without these every recipe dies with
-#   LookupError: Resource stopwords not found
-# which is what killed a full session: the attack fails, run.sh counts the unit
-# as done anyway, and the run looks busy while producing nothing.
-python3 - <<'PYEOF'
-import nltk, sys
-NEEDED = ["stopwords", "punkt", "punkt_tab", "wordnet", "omw-1.4",
-          "averaged_perceptron_tagger", "averaged_perceptron_tagger_eng",
-          "universal_tagset"]
-bad = []
-for pkg in NEEDED:
-    try:
-        nltk.download(pkg, quiet=True)
-    except Exception as e:
-        bad.append(f"{pkg}: {type(e).__name__}")
-# Downloading is not the same as finding it; check the ones recipes actually use.
-for probe, path in (("stopwords", "corpora/stopwords"),
-                    ("wordnet", "corpora/wordnet"),
-                    ("averaged_perceptron_tagger", "taggers/averaged_perceptron_tagger")):
-    try:
-        nltk.data.find(path)
-    except LookupError:
-        bad.append(f"{probe}: still not found after download")
-if bad:
-    print("  [FAIL] NLTK data missing:"); [print("   ", b) for b in bad]
-    sys.exit(1)
-print(f"  {len(NEEDED)} NLTK packages present")
-PYEOF
-if [ $? -ne 0 ]; then
-  echo "[FAIL] NLTK data could not be fetched — every recipe would fail. Stopping."
-  exit 1
-fi
-
 say "repository"
 if [ -d "$PROJECT/.git" ]; then
   git -C "$PROJECT" pull --ff-only
@@ -87,6 +52,12 @@ else
   git clone "$REPO" "$PROJECT"
 fi
 cd "$PROJECT"
+
+say "NLTK corpora"
+if ! python3 colab/nltk_check.py; then
+  echo "[FAIL] NLTK data could not be fetched — every recipe would fail. Stopping."
+  exit 1
+fi
 
 say "datasets (Git LFS)"
 git lfs install

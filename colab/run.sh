@@ -73,21 +73,13 @@ if [ -z "${MDG_MODEL_BATCH:-}" ]; then
 fi
 [ -n "${MDG_MODEL_BATCH:-}" ] && export MDG_MODEL_BATCH
 
-# ── refuse to run without NLTK data ──────────────────────────────────────────
-# Recipes build their constraints from NLTK corpora at attack time. Missing
-# stopwords kills every recipe with a LookupError, the unit loop counts the
-# failure as done, and the session burns out producing nothing. This is the
-# exact failure that cost a full 11-hour run.
-if ! python3 -c "
-import nltk, sys
-for p in ('corpora/stopwords','corpora/wordnet','taggers/averaged_perceptron_tagger'):
-    try: nltk.data.find(p)
-    except LookupError: sys.exit(f'missing {p}')
-" 2>&1; then
-  echo "[FAIL] NLTK data missing — every recipe would die with LookupError."
-  echo "       Run colab/setup.sh, or in a cell:"
-  echo "         import nltk; [nltk.download(p) for p in"
-  echo "           ('stopwords','wordnet','averaged_perceptron_tagger','punkt','omw-1.4')]"
+# ── NLTK data ────────────────────────────────────────────────────────────────
+# Recipes build their constraints from NLTK corpora at attack time, so missing
+# data kills every recipe with a LookupError while the unit loop counts each
+# failure as done -- the session looks busy and produces nothing.
+# nltk_check.py downloads what is missing and proves each resource by using it.
+if ! python3 "$PROJECT/colab/nltk_check.py"; then
+  echo "[FAIL] NLTK data unusable — every recipe would die with LookupError."
   exit 1
 fi
 

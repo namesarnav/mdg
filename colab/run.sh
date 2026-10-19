@@ -29,12 +29,19 @@ cd "$PROJECT" || { echo "[FAIL] no $PROJECT — run colab/setup.sh first"; exit 
 export ATTACK_SPLIT=holdout
 unset NUM_EXAMPLES QUERY_BUDGET     # complete split, unlimited search depth
 export ROW_SHARDS
-export MDG_LOG_DIR="$MDG_DRIVE/logs"
+# Logs on LOCAL disk, mirrored to Drive like the results. tee holds the file
+# open for the whole run and Drive's FUSE mount does not publish an open file,
+# so a log written straight to Drive stays frozen at its first flush.
+# The name carries the shard: four sessions writing one filename through FUSE
+# made Drive invent "colab-run (1).log", "colab-run (2).log" instead of merging.
+export MDG_LOG_DIR="/content/mdg-logs"
+SHARD_TAG="$(echo "$SHARD" | tr '/' 'of')"
+RUN_LOG="$MDG_LOG_DIR/colab-run-shard${SHARD_TAG}.log"
 # Local disk, never Drive: filelock and symlinks do not work on the FUSE mount.
 export MDG_CACHE_ROOT="${MDG_CACHE_ROOT:-/content/mdg-cache}"
 export HF_HOME="$MDG_CACHE_ROOT/hf_cache"
 export MDG_KEEP_CHECKPOINTS=1
-mkdir -p "$MDG_LOG_DIR"
+mkdir -p "$MDG_LOG_DIR" "$MDG_DRIVE/logs"
 
 # ── GPU sizing ───────────────────────────────────────────────────────────────
 # With a GPU the workers share it, so the limit is host RAM and vCPU rather
@@ -66,6 +73,24 @@ if [ -z "${MDG_MODEL_BATCH:-}" ]; then
 fi
 [ -n "${MDG_MODEL_BATCH:-}" ] && export MDG_MODEL_BATCH
 
+# ── refuse to run without NLTK data ──────────────────────────────────────────
+# Recipes build their constraints from NLTK corpora at attack time. Missing
+# stopwords kills every recipe with a LookupError, the unit loop counts the
+# failure as done, and the session burns out producing nothing. This is the
+# exact failure that cost a full 11-hour run.
+if ! python3 -c "
+import nltk, sys
+for p in ('corpora/stopwords','corpora/wordnet','taggers/averaged_perceptron_tagger'):
+    try: nltk.data.find(p)
+    except LookupError: sys.exit(f'missing {p}')
+" 2>&1; then
+  echo "[FAIL] NLTK data missing — every recipe would die with LookupError."
+  echo "       Run colab/setup.sh, or in a cell:"
+  echo "         import nltk; [nltk.download(p) for p in"
+  echo "           ('stopwords','wordnet','averaged_perceptron_tagger','punkt','omw-1.4')]"
+  exit 1
+fi
+
 # ── refuse to run on a cold cache ────────────────────────────────────────────
 # A failed warm makes every recipe fail identically, and the unit loop counts
 # them anyway -- which is how a 12-hour session produces nothing while looking
@@ -96,6 +121,8 @@ mirror_to_drive() {
   mkdir -p "$MDG_DRIVE/results"
   rsync -a mdg/adv_attack/results/ "$MDG_DRIVE/results/" 2>/dev/null || \
     echo "  [WARN] mirror to Drive failed" >&2
+  # cp, not rsync: the log is open, and a copy of a growing file is fine.
+  cp -f "$RUN_LOG" "$MDG_DRIVE/logs/" 2>/dev/null || true
 }
 ( while true; do sleep 180; mirror_to_drive; done ) &
 MIRROR_PID=$!
@@ -197,7 +224,7 @@ while IFS=' ' read -r task recipe rowshard; do
   # line per unit and looked dead for hours.
   RECIPES="$recipe" ROW_SHARD="$rowshard" \
     timeout "$(left)" bash mdg/hpc/run_one.sh attack "$task" 2>&1 \
-    | tee -a "$MDG_LOG_DIR/colab-run.log" \
+    | tee -a "$RUN_LOG" \
     | grep --line-buffered -E "attack split|it/s|s/it|\[OK\]|\[FAIL\]|SKIP|Traceback|Error" || true
   done_n=$(( done_n + 1 ))
   mirror_to_drive

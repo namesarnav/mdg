@@ -16,7 +16,7 @@ set -uo pipefail
 APPLY=0
 [ "${1:-}" = "--apply" ] && APPLY=1
 
-HPC_DIR="$(cd "$(dirname "$0")" && pwd)"
+HPC_DIR="$(cd "$(dirname "$0")/.." && pwd)"   # scripts live in legacy/, env.sh is one level up
 source "$HPC_DIR/env.sh"
 RESULTS="$PROJECT/mdg/adv_attack/results"
 cd "$RESULTS" || { echo "no results dir at $RESULTS"; exit 1; }

@@ -11,7 +11,7 @@
 # peft, bitsandbytes and textattack.
 set -euo pipefail
 
-source "$(dirname "$0")/env.sh"
+source "$(dirname "$0")/../env.sh"
 
 # Refuse to build on a login or data-transfer node: the pip install is heavy and
 # these nodes are shared. Get a compute node first, e.g.
@@ -98,7 +98,7 @@ INNER
 
 # ── Verify GPU visibility ─────────────────────────────────────────────────────
 echo "[3/3] Verifying the environment (GPU check needs a GPU node)"
-source "$(dirname "$0")/env.sh"
+source "$(dirname "$0")/../env.sh"
 in_container "python -c \"import torch; print('CUDA available:', torch.cuda.is_available())\"" || \
   echo "[NOTE] No GPU on this node — fine, the batch jobs request one."
 

@@ -9,7 +9,7 @@
 # compute. Run it before 00_setup_env.sh; if this fails, nothing else will work.
 set -uo pipefail
 
-HPC_DIR="$(cd "$(dirname "$0")" && pwd)"
+HPC_DIR="$(cd "$(dirname "$0")/.." && pwd)"   # scripts live in legacy/, env.sh is one level up
 source "$HPC_DIR/env.sh"
 
 echo "========================================================"

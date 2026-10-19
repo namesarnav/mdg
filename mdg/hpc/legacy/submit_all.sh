@@ -11,7 +11,8 @@
 # consolidate uses afterany so you still get a CSV of whatever finished.
 set -euo pipefail
 
-HPC_DIR="$(cd "$(dirname "$0")" && pwd)"
+LEGACY_DIR="$(cd "$(dirname "$0")" && pwd)"          # the .sbatch files live here
+HPC_DIR="$(cd "$LEGACY_DIR/.." && pwd)"              # env.sh / matrix.sh / run_one.sh are one level up
 source "$HPC_DIR/env.sh"
 source "$HPC_DIR/matrix.sh"
 LAST=$(( N_JOBS - 1 ))
@@ -30,11 +31,11 @@ fi
 
 echo "Grid: $N_MODELS models × $N_DATASETS datasets = $N_JOBS tasks per stage"
 
-TRAIN_ID=$(sbatch --parsable "${PART_ARG[@]}" --array=0-$LAST "$HPC_DIR/train.sbatch")
+TRAIN_ID=$(sbatch --parsable "${PART_ARG[@]}" --array=0-$LAST "$LEGACY_DIR/train.sbatch")
 echo "  train       → job $TRAIN_ID"
 
 ATTACK_ID=$(sbatch --parsable "${PART_ARG[@]}" --array=0-$LAST \
-  --dependency=afterok:"$TRAIN_ID" "$HPC_DIR/attack.sbatch")
+  --dependency=afterok:"$TRAIN_ID" "$LEGACY_DIR/attack.sbatch")
 echo "  attack      → job $ATTACK_ID  (after train)"
 
 # Consolidation is CPU-only — send it to a CPU partition when one is set.
@@ -42,7 +43,7 @@ CONS_PART=()
 [ -n "${CPU_PARTITION:-}" ] && CONS_PART=(--partition="$CPU_PARTITION")
 [ -n "${ACCOUNT:-}" ] && CONS_PART+=(--account="$ACCOUNT")
 CONS_ID=$(sbatch --parsable "${CONS_PART[@]}" \
-  --dependency=afterany:"$ATTACK_ID" "$HPC_DIR/consolidate.sbatch")
+  --dependency=afterany:"$ATTACK_ID" "$LEGACY_DIR/consolidate.sbatch")
 echo "  consolidate → job $CONS_ID  (after attack)"
 
 echo

@@ -13,7 +13,7 @@ set -uo pipefail
 
 HOURS="${1:-11}"
 ONLY="${2:-both}"
-HPC_DIR="$(cd "$(dirname "$0")" && pwd)"
+HPC_DIR="$(cd "$(dirname "$0")/.." && pwd)"   # scripts live in legacy/, env.sh is one level up
 source "$HPC_DIR/env.sh"
 source "$HPC_DIR/matrix.sh"
 cd "$PROJECT" || exit 1

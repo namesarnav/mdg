@@ -197,7 +197,8 @@ while IFS=' ' read -r task recipe rowshard; do
   # line per unit and looked dead for hours.
   RECIPES="$recipe" ROW_SHARD="$rowshard" \
     timeout "$(left)" bash mdg/hpc/run_one.sh attack "$task" 2>&1 \
-    | tee -a "$MDG_LOG_DIR/colab-run.log" | grep -E "attack split|it/s|s/it|\[OK\]|\[FAIL\]|SKIP|Traceback|Error" || true
+    | tee -a "$MDG_LOG_DIR/colab-run.log" \
+    | grep --line-buffered -E "attack split|it/s|s/it|\[OK\]|\[FAIL\]|SKIP|Traceback|Error" || true
   done_n=$(( done_n + 1 ))
   mirror_to_drive
 done < <(grep -v '^#' "$PENDING" | head -n 100000)

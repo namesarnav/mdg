@@ -69,6 +69,19 @@ DEADLINE=$(( $(date +%s) + $(awk -v h="$HOURS" 'BEGIN{printf "%d", h*3600}') ))
 left() { echo $(( DEADLINE - $(date +%s) )); }
 human() { printf '%dh%02dm' $(( $1 / 3600 )) $(( ($1 % 3600) / 60 )); }
 
+# ── mirror results to Drive ──────────────────────────────────────────────────
+# rsync of CLOSED files, which Drive's FUSE mount handles correctly, instead of
+# writing the live .jsonl straight into Drive where it stays invisible until the
+# unit ends.
+mirror_to_drive() {
+  mkdir -p "$MDG_DRIVE/results"
+  rsync -a mdg/adv_attack/results/ "$MDG_DRIVE/results/" 2>/dev/null || \
+    echo "  [WARN] mirror to Drive failed" >&2
+}
+( while true; do sleep 180; mirror_to_drive; done ) &
+MIRROR_PID=$!
+trap 'mirror_to_drive; kill "$MIRROR_PID" 2>/dev/null' EXIT INT TERM
+
 echo "════════════════════════════════════════════════════════"
 echo "  budget     : ${HOURS}h  (stops between units; re-run to resume)"
 echo "  shard      : $SHARD      row shards: $ROW_SHARDS"
@@ -161,12 +174,18 @@ while IFS=' ' read -r task recipe rowshard; do
     break
   fi
   echo "[$(human $(left)) left] task $task  $recipe  rows $rowshard"
+  # tee, not >>: with everything redirected to a file the cell printed one
+  # line per unit and looked dead for hours.
   RECIPES="$recipe" ROW_SHARD="$rowshard" \
-    timeout "$(left)" bash mdg/hpc/run_one.sh attack "$task" \
-    >> "$MDG_LOG_DIR/colab-run.log" 2>&1
+    timeout "$(left)" bash mdg/hpc/run_one.sh attack "$task" 2>&1 \
+    | tee -a "$MDG_LOG_DIR/colab-run.log" | grep -E "attack split|it/s|s/it|\[OK\]|\[FAIL\]|SKIP|Traceback|Error" || true
   done_n=$(( done_n + 1 ))
+  mirror_to_drive
 done < <(grep -v '^#' "$PENDING" | head -n 100000)
 rm -f "$PENDING"
+
+mirror_to_drive
+kill "$MIRROR_PID" 2>/dev/null || true
 
 echo
 echo "  completed this session : $done_n unit(s)"

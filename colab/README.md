@@ -25,13 +25,39 @@ CUDA in fp16 automatically when a GPU is present.
 | `setup.sh` | deps, clone, `git lfs pull`, 33 models, attack cache. Once per session. |
 | `run.sh N` | works N hours, stops cleanly between units. Re-run to resume. |
 
+## Where output goes
+
+```
+/content/drive/MyDrive/mdg/
+├── results/namesarnav_<dataset>__test/<model>/<recipe>.sh<i>of64.jsonl
+├── results/.../<recipe>.sh<i>of64_summary.json
+├── logs/colab-run.log
+├── hf_cache/            33 models, so a new session re-downloads nothing
+└── textattack_cache/
+```
+
+Results are written to **local disk** and rsynced to Drive **every 3 minutes**,
+plus once after every unit and once on exit.
+
+They are deliberately *not* symlinked into Drive. `attack.py` holds the
+per-example `.jsonl` open for the whole unit (`attack.py:267`), and Drive's
+FUSE mount does not publish a file's contents until it is closed — so a
+symlinked layout showed an empty Drive folder for hours, which looks exactly
+like nothing happening. rsync of closed files works correctly.
+
+Check at any time:
+
+```python
+!ls -laR /content/drive/MyDrive/mdg/results | head -40
+!tail -40 /content/drive/MyDrive/mdg/logs/colab-run.log
+```
+
 ## Built for a session that dies
 
 Colab will disconnect, probably mid-run. That costs you at most one unit:
 
-- **Results live on Drive.** `mdg/adv_attack/results` is symlinked to
-  `$MDG_DRIVE/results`, so every `.jsonl`, `_summary.json` and log is written
-  outside the container.
+- **Results reach Drive within 3 minutes** of being written, and a new session
+  restores them back from Drive so finished units are seen and skipped.
 - **Model and asset caches live on Drive** too (`HF_HOME`, `MDG_CACHE_ROOT`),
   so a new session skips ~20GB of downloads.
 - **Finished units are skipped.** `run_one.sh` checks its own done-marker, so

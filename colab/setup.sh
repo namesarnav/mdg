@@ -66,15 +66,23 @@ echo "  $(ls mdg/finetune/data/*__test.jsonl | wc -l) test splits, all real data
 # ── results live on Drive, not in the container ──────────────────────────────
 say "persistence"
 mkdir -p "$MDG_DRIVE/results" "$MDG_DRIVE/logs" "$MDG_DRIVE/hf_cache"
-if [ ! -L mdg/adv_attack/results ]; then
-  # Fold anything already written in the container into Drive before linking.
-  if [ -d mdg/adv_attack/results ]; then
-    rsync -a mdg/adv_attack/results/ "$MDG_DRIVE/results/" 2>/dev/null || true
-    rm -rf mdg/adv_attack/results
-  fi
-  ln -s "$MDG_DRIVE/results" mdg/adv_attack/results
+# Results are written to LOCAL disk and rsynced to Drive by run.sh.
+#
+# They used to be a symlink straight into $MDG_DRIVE. That looks tidier and is
+# wrong: attack.py holds the per-example .jsonl open for the whole unit
+# (attack.py:267), and Drive's FUSE mount does not publish a file's contents
+# until it is closed. Hours of streamed results were invisible in Drive, which
+# is indistinguishable from nothing happening.
+if [ -L mdg/adv_attack/results ]; then
+  rm -f mdg/adv_attack/results            # undo the old symlink layout
 fi
-echo "  results  -> $MDG_DRIVE/results"
+mkdir -p mdg/adv_attack/results
+# Anything already on Drive comes back so done-markers are seen and skipped.
+if [ -d "$MDG_DRIVE/results" ]; then
+  rsync -a "$MDG_DRIVE/results/" mdg/adv_attack/results/ 2>/dev/null || true
+  echo "  restored $(find mdg/adv_attack/results -name '*_summary.json' | wc -l) finished unit(s) from Drive"
+fi
+echo "  results  -> local, mirrored to $MDG_DRIVE/results every 3 min"
 echo "  logs     -> $MDG_DRIVE/logs"
 # Model cache on Drive too, so a new session does not re-download 20GB.
 export HF_HOME="$MDG_DRIVE/hf_cache"

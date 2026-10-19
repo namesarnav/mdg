@@ -35,11 +35,35 @@ export HF_HOME="$MDG_DRIVE/hf_cache"
 export MDG_KEEP_CHECKPOINTS=1
 mkdir -p "$MDG_LOG_DIR"
 
-# One worker per vCPU, but never more than 4: each loads its own model and
-# Colab's RAM is the binding constraint long before its cores are.
+# ── GPU sizing ───────────────────────────────────────────────────────────────
+# With a GPU the workers share it, so the limit is host RAM and vCPU rather
+# than VRAM: one bert-base in fp16 is ~250MB against an L4's 24GB.
+GPU_NAME="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)"
+VRAM_MB="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)"
+VRAM_MB="${VRAM_MB:-0}"
+
 if [ -z "$JOBS" ]; then
-  n=$(nproc); JOBS=$(( n > 4 ? 4 : n )); [ "$JOBS" -lt 1 ] && JOBS=1
+  n=$(nproc)
+  if [ "$VRAM_MB" -ge 20000 ]; then
+    JOBS=$(( n > 8 ? 8 : n ))        # L4 / A100 class
+  elif [ "$VRAM_MB" -ge 1 ]; then
+    JOBS=$(( n > 4 ? 4 : n ))        # T4 class
+  else
+    JOBS=$(( n > 4 ? 4 : n ))        # CPU only
+  fi
+  [ "$JOBS" -lt 1 ] && JOBS=1
 fi
+
+# Goal-function query batch size. TextAttack's default of 32 wastes a big GPU;
+# PSO-class recipes issue thousands of forward passes per example and they
+# batch perfectly. Left unset on CPU, where a large batch only costs memory.
+if [ -z "${MDG_MODEL_BATCH:-}" ]; then
+  if   [ "$VRAM_MB" -ge 20000 ]; then MDG_MODEL_BATCH=256
+  elif [ "$VRAM_MB" -ge 14000 ]; then MDG_MODEL_BATCH=128
+  elif [ "$VRAM_MB" -ge 1 ];     then MDG_MODEL_BATCH=64
+  fi
+fi
+[ -n "${MDG_MODEL_BATCH:-}" ] && export MDG_MODEL_BATCH
 
 DEADLINE=$(( $(date +%s) + $(awk -v h="$HOURS" 'BEGIN{printf "%d", h*3600}') ))
 left() { echo $(( DEADLINE - $(date +%s) )); }
@@ -48,7 +72,9 @@ human() { printf '%dh%02dm' $(( $1 / 3600 )) $(( ($1 % 3600) / 60 )); }
 echo "════════════════════════════════════════════════════════"
 echo "  budget     : ${HOURS}h  (stops between units; re-run to resume)"
 echo "  shard      : $SHARD      row shards: $ROW_SHARDS"
+echo "  gpu        : ${GPU_NAME:-none}${VRAM_MB:+ (${VRAM_MB}MB)}"
 echo "  workers    : $JOBS"
+echo "  query batch: ${MDG_MODEL_BATCH:-TextAttack default (32)}"
 echo "  examples   : ALL (complete test split, no cap)"
 echo "  results    : $MDG_DRIVE/results"
 echo "════════════════════════════════════════════════════════"

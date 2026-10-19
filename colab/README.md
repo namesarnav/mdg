@@ -52,16 +52,47 @@ at 12. Ordering by list position would hand a 12-hour session the most
 expensive work first. Four of the eighteen per-word costs are measured from
 completed runs in this repo; the rest are estimates of the same shape.
 
-## Several accounts at once
+## Several sessions at once
 
-`SHARD=i/n` splits the grid into disjoint slices. Verified exhaustive — the
-three shards of `i/3` sum exactly to the full unit count, with no overlap.
+`SHARD=i/n` splits the grid into disjoint slices. In cell 6, set `SHARD` per
+session:
+
+| Session | `SHARD` | Units |
+|---|---|---:|
+| 1 | `0/4` | 9,504 |
+| 2 | `1/4` | 9,504 |
+| 3 | `2/4` | 9,504 |
+| 4 | `3/4` | 9,504 |
+
+Verified exhaustive and disjoint at `ROW_SHARDS=64`: the four slices sum to
+exactly 38,016 units (33 × 18 × 64) with no duplicates, so four sessions never
+repeat each other's work.
+
+## GPU sizing
+
+`run.sh` reads the GPU and sizes itself:
+
+| GPU | Workers | Query batch |
+|---|---:|---:|
+| L4 / A100 (≥20GB) | 8 | 256 |
+| T4 (≥14GB) | 4 | 128 |
+| smaller GPU | 4 | 64 |
+| CPU only | 4 | TextAttack default (32) |
+
+The batch size matters more than the worker count. TextAttack's goal function
+defaults to **32** queries per forward pass, which leaves most of an L4 idle —
+a PSO-class recipe issues 3,500+ forward passes per example and they batch
+perfectly. `attack.py` now reads `MDG_MODEL_BATCH` and sets it on the goal
+function (the knob is there, not on `AttackArgs`), defensively, since the
+attribute name has moved between TextAttack versions.
+
+Override either:
 
 ```bash
-!... bash colab/run.sh 11     # SHARD=0/3 on account A
-!... bash colab/run.sh 11     # SHARD=1/3 on account B
-!... bash colab/run.sh 11     # SHARD=2/3 on account C
+!... JOBS=6 MDG_MODEL_BATCH=512 bash colab/run.sh 11
 ```
+
+If you see CUDA OOM, lower `MDG_MODEL_BATCH` before lowering `JOBS`.
 
 ## Keep ROW_SHARDS at 64
 

@@ -216,6 +216,24 @@ def run_recipe(
         print(f"SKIP (build failed: {e})")
         return None
 
+    # Goal-function query batch size. TextAttack defaults to 32, which leaves
+    # most of a modern GPU idle: a PSO-class recipe issues thousands of
+    # forward passes per example and they batch perfectly. The knob lives on
+    # the goal function, NOT on AttackArgs, and is set defensively because its
+    # name has moved between TextAttack versions.
+    #   MDG_MODEL_BATCH=256  on a 24GB L4
+    #   unset                keeps TextAttack's default (right for CPU)
+    mb = os.environ.get("MDG_MODEL_BATCH")
+    if mb:
+        gf = getattr(attack, "goal_function", None)
+        for field in ("model_batch_size", "batch_size"):
+            if gf is not None and hasattr(gf, field):
+                setattr(gf, field, int(mb))
+                print(f"batch={mb}", end=" ", flush=True)
+                break
+        else:
+            print("(batch knob not found on this TextAttack)", end=" ", flush=True)
+
     attack_args = AttackArgs(
         num_examples=num_examples,
         query_budget=query_budget,

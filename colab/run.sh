@@ -30,8 +30,9 @@ export ATTACK_SPLIT=holdout
 unset NUM_EXAMPLES QUERY_BUDGET     # complete split, unlimited search depth
 export ROW_SHARDS
 export MDG_LOG_DIR="$MDG_DRIVE/logs"
-export MDG_CACHE_ROOT="$MDG_DRIVE/textattack_cache"
-export HF_HOME="$MDG_DRIVE/hf_cache"
+# Local disk, never Drive: filelock and symlinks do not work on the FUSE mount.
+export MDG_CACHE_ROOT="${MDG_CACHE_ROOT:-/content/mdg-cache}"
+export HF_HOME="$MDG_CACHE_ROOT/hf_cache"
 export MDG_KEEP_CHECKPOINTS=1
 mkdir -p "$MDG_LOG_DIR"
 
@@ -64,6 +65,24 @@ if [ -z "${MDG_MODEL_BATCH:-}" ]; then
   fi
 fi
 [ -n "${MDG_MODEL_BATCH:-}" ] && export MDG_MODEL_BATCH
+
+# ── refuse to run on a cold cache ────────────────────────────────────────────
+# A failed warm makes every recipe fail identically, and the unit loop counts
+# them anyway -- which is how a 12-hour session produces nothing while looking
+# busy. Check before burning the session, not after.
+if [ ! -d "$MDG_CACHE_ROOT/textattack_cache" ] || \
+   [ -z "$(ls -A "$MDG_CACHE_ROOT/textattack_cache" 2>/dev/null)" ]; then
+  if [ -d "$MDG_DRIVE/cache" ]; then
+    echo "  restoring cache from Drive..."
+    rsync -a "$MDG_DRIVE/cache/" "$MDG_CACHE_ROOT/" 2>/dev/null || true
+  fi
+fi
+if [ ! -d "$MDG_CACHE_ROOT/textattack_cache" ] || \
+   [ -z "$(ls -A "$MDG_CACHE_ROOT/textattack_cache" 2>/dev/null)" ]; then
+  echo "[FAIL] attack asset cache is empty at $MDG_CACHE_ROOT/textattack_cache"
+  echo "       Every recipe would fail instantly. Run colab/setup.sh first."
+  exit 1
+fi
 
 DEADLINE=$(( $(date +%s) + $(awk -v h="$HOURS" 'BEGIN{printf "%d", h*3600}') ))
 left() { echo $(( DEADLINE - $(date +%s) )); }

@@ -14,6 +14,7 @@
 set -euo pipefail
 
 MDG_DRIVE="${MDG_DRIVE:-/content/drive/MyDrive/mdg}"
+CACHE="${MDG_CACHE_ROOT:-/content/mdg-cache}"   # local disk; see below
 PROJECT="${PROJECT:-/content/mdg}"
 REPO="${REPO:-https://github.com/namesarnav/mdg.git}"
 
@@ -65,7 +66,7 @@ echo "  $(ls mdg/finetune/data/*__test.jsonl | wc -l) test splits, all real data
 
 # ── results live on Drive, not in the container ──────────────────────────────
 say "persistence"
-mkdir -p "$MDG_DRIVE/results" "$MDG_DRIVE/logs" "$MDG_DRIVE/hf_cache"
+mkdir -p "$MDG_DRIVE/results" "$MDG_DRIVE/logs" "$MDG_DRIVE/cache"
 # Results are written to LOCAL disk and rsynced to Drive by run.sh.
 #
 # They used to be a symlink straight into $MDG_DRIVE. That looks tidier and is
@@ -84,12 +85,25 @@ if [ -d "$MDG_DRIVE/results" ]; then
 fi
 echo "  results  -> local, mirrored to $MDG_DRIVE/results every 3 min"
 echo "  logs     -> $MDG_DRIVE/logs"
-# Model cache on Drive too, so a new session does not re-download 20GB.
-export HF_HOME="$MDG_DRIVE/hf_cache"
-echo "  hf_cache -> $MDG_DRIVE/hf_cache"
+# ── caches live on LOCAL disk ────────────────────────────────────────────────
+# NOT on Drive. TextAttack guards its asset downloads with filelock, and Drive's
+# FUSE mount does not support the locking it needs -- pointing MDG_CACHE_ROOT at
+# Drive made all 18 recipes fail to warm, and then fail identically in the real
+# run. HuggingFace's cache uses symlinks, which Drive also lacks.
+#
+# They are mirrored to and from Drive with rsync (closed files, which Drive
+# handles fine) so a new session still skips the downloads.
+export MDG_CACHE_ROOT="$CACHE"
+export HF_HOME="$CACHE/hf_cache"
+mkdir -p "$HF_HOME" "$CACHE/textattack_cache"
+if [ -d "$MDG_DRIVE/cache" ]; then
+  echo "  restoring cache from Drive"
+  rsync -a "$MDG_DRIVE/cache/" "$CACHE/" 2>/dev/null || true
+fi
+echo "  caches   -> $CACHE (mirrored to $MDG_DRIVE/cache)"
 
 say "models (33 from the Hub, cached to Drive)"
-HF_HOME="$MDG_DRIVE/hf_cache" python3 - <<'PYEOF'
+python3 - <<'PYEOF'
 import os
 from huggingface_hub import snapshot_download
 DATASETS = ["counterbench","ac-reason","bbh-causal-judgement","causalbench_code",
@@ -107,7 +121,27 @@ print(f"  cached {ok}/33" + (f", {bad} missing" if bad else ""))
 PYEOF
 
 say "attack assets (serial — concurrent workers corrupt the shared cache)"
-MDG_CACHE_ROOT="$MDG_DRIVE/textattack_cache" bash mdg/hpc/warm_cache.sh 2>&1 | tail -4
+WARM_LOG="$MDG_DRIVE/logs/warm_cache.log"
+bash mdg/hpc/warm_cache.sh 2>&1 | tee "$WARM_LOG" | tail -25
+# A failed warm is not cosmetic: every recipe fails the same way in the real
+# run, and the loop still counts the unit, so the session burns hours producing
+# nothing. Stop here instead.
+if grep -q "failed to warm" "$WARM_LOG"; then
+  echo
+  echo "════════════════════════════════════════════════════════"
+  echo "  WARM CACHE FAILED — do not launch. First traceback:"
+  echo "════════════════════════════════════════════════════════"
+  grep -A 12 -m 1 "Traceback" "$WARM_LOG" || tail -30 "$WARM_LOG"
+  echo
+  echo "  full log: $WARM_LOG"
+  exit 1
+fi
+
+say "mirroring cache to Drive (so later sessions skip the downloads)"
+rsync -a "$CACHE/" "$MDG_DRIVE/cache/" 2>/dev/null \
+  && echo "  $(du -sh "$MDG_DRIVE/cache" | cut -f1) cached on Drive" \
+  || echo "  [WARN] cache mirror failed — later sessions will re-download"
+touch "$MDG_DRIVE/cache/.warmed"
 
 say "verifying"
 python3 - <<'PYEOF'

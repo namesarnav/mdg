@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+#  MDG on Colab — work for N hours, then stop cleanly
+#
+#      !MDG_DRIVE=/content/drive/MyDrive/mdg bash colab/run.sh 11
+#
+#  Attacks the COMPLETE test split of every dataset. No example cap, no query
+#  budget. The only limit is wall-clock: it stops between units when the
+#  budget runs out, and every finished unit is skipped on the next run, so a
+#  Colab timeout costs at most one unit of work.
+#
+#  SHARD=i/n splits the grid across several Colab accounts or sessions.
+#
+#  mdg/hpc/legacy/run_budget.sh does something similar but requires a local
+#  checkpoint and omits the __test suffix from its done-markers, so it is not
+#  usable here -- this iterates Hub models and uses run_one.sh's own markers.
+# ─────────────────────────────────────────────────────────────────────────────
+set -uo pipefail
+
+HOURS="${1:-11}"
+PROJECT="${PROJECT:-/content/mdg}"
+MDG_DRIVE="${MDG_DRIVE:-/content/drive/MyDrive/mdg}"
+SHARD="${SHARD:-0/1}"
+ROW_SHARDS="${ROW_SHARDS:-64}"      # must match the VM fleet for results to merge
+JOBS="${JOBS:-}"
+
+cd "$PROJECT" || { echo "[FAIL] no $PROJECT — run colab/setup.sh first"; exit 1; }
+
+export ATTACK_SPLIT=holdout
+unset NUM_EXAMPLES QUERY_BUDGET     # complete split, unlimited search depth
+export ROW_SHARDS
+export MDG_LOG_DIR="$MDG_DRIVE/logs"
+export MDG_CACHE_ROOT="$MDG_DRIVE/textattack_cache"
+export HF_HOME="$MDG_DRIVE/hf_cache"
+export MDG_KEEP_CHECKPOINTS=1
+mkdir -p "$MDG_LOG_DIR"
+
+# One worker per vCPU, but never more than 4: each loads its own model and
+# Colab's RAM is the binding constraint long before its cores are.
+if [ -z "$JOBS" ]; then
+  n=$(nproc); JOBS=$(( n > 4 ? 4 : n )); [ "$JOBS" -lt 1 ] && JOBS=1
+fi
+
+DEADLINE=$(( $(date +%s) + $(awk -v h="$HOURS" 'BEGIN{printf "%d", h*3600}') ))
+left() { echo $(( DEADLINE - $(date +%s) )); }
+human() { printf '%dh%02dm' $(( $1 / 3600 )) $(( ($1 % 3600) / 60 )); }
+
+echo "════════════════════════════════════════════════════════"
+echo "  budget     : ${HOURS}h  (stops between units; re-run to resume)"
+echo "  shard      : $SHARD      row shards: $ROW_SHARDS"
+echo "  workers    : $JOBS"
+echo "  examples   : ALL (complete test split, no cap)"
+echo "  results    : $MDG_DRIVE/results"
+echo "════════════════════════════════════════════════════════"
+
+# ── Enumerate pending units, cheapest first ──────────────────────────────────
+# Done in Python: 33 x 18 x ROW_SHARDS is up to 38k units, and spawning
+# run_one.sh just to have it skip would cost half an hour of a 12h session.
+PENDING="$(mktemp)"
+python3 - "$ROW_SHARDS" "$SHARD" > "$PENDING" <<'PYEOF'
+import json, sys, pathlib
+row_shards = int(sys.argv[1])
+si, sn = (int(x) for x in sys.argv[2].split("/"))
+
+DATASETS = ["counterbench","ac-reason","bbh-causal-judgement","causalbench_code",
+            "causalbench_math","causalbench_text","corr2cause","e-care",
+            "fincausal-task1","natquest","Quriosity"]
+MODELS = ["bert-base-uncased","roberta-base","t5-base"]
+sys.path.insert(0, ".")
+import mdg.adv_attack.attack as A
+RECIPES = [n for n, _ in A.RECIPES]
+
+# Queries per WORD. The four marked (*) are measured from completed runs in
+# this repo; the rest are estimates of the same shape. attack.py's list order
+# is NOT cost order -- CheckList (the cheapest recipe there is) sits at index
+# 10 and PSO at 12 -- so ordering by list position would hand a short Colab
+# session the most expensive work first.
+QPW = {"CheckList2020": 0.35,            # *
+       "Pruthi2019": 1.0,
+       "BadCharacters2021": 0.8,
+       "DeepWordBugGao2018": 1.4,        # *
+       "TextBuggerLi2018": 2.5,
+       "MorpheusTan2020": 2.5,
+       "InputReductionFeng2018": 3.0,
+       "A2TYoo2021": 5.0,
+       "PWWSRen2019": 5.4,               # *
+       "Kuleshov2017": 8.0,
+       "TextFoolerJin2019": 10.0,
+       "BAEGarg2019": 12.0,
+       "BERTAttackLi2020": 16.0,
+       "CLARE2020": 25.0,
+       "IGAWang2019": 30.0,
+       "FasterGeneticAlgorithmJia2019": 40.0,
+       "GeneticAlgorithmAlzantot2018": 60.0,
+       "PSOZang2020": 133.0}             # *
+COST = {n: QPW.get(n, 10.0) for n in RECIPES}
+
+DATA = pathlib.Path("mdg/finetune/data")
+RES  = pathlib.Path("mdg/adv_attack/results")
+rows = {d: sum(1 for _ in open(DATA / f"namesarnav_{d}__test.jsonl")) for d in DATASETS}
+words = {d: (sum(len(json.loads(l)["text"].split())
+             for l in open(DATA / f"namesarnav_{d}__test.jsonl")) / rows[d])
+         for d in DATASETS}
+
+units = []
+for mi, m in enumerate(MODELS):
+    for di, d in enumerate(DATASETS):
+        task = mi * len(DATASETS) + di
+        out = RES / f"namesarnav_{d}__test" / m
+        for r in RECIPES:
+            for s in range(row_shards):
+                sfx = f".sh{s}of{row_shards}" if row_shards > 1 else ""
+                if (out / f"{r}{sfx}_summary.json").exists():
+                    continue
+                # cheapest first: total queries for this unit
+                units.append((rows[d] * words[d] * COST[r] / row_shards, task, r, s))
+
+units.sort()
+mine = [u for i, u in enumerate(units) if i % sn == si]
+for _, task, r, s in mine:
+    print(task, r, f"{s}/{row_shards}")
+print(f"# {len(mine)} pending of {len(units)} total", file=sys.stderr)
+PYEOF
+
+TOTAL=$(grep -vc '^#' "$PENDING" 2>/dev/null || echo 0)
+echo "  pending    : $TOTAL unit(s) for this shard"
+[ "$TOTAL" -eq 0 ] && { echo; echo "[DONE] nothing left for shard $SHARD"; rm -f "$PENDING"; exit 0; }
+
+# ── Work the list, JOBS at a time, until the budget runs out ─────────────────
+done_n=0
+while IFS=' ' read -r task recipe rowshard; do
+  [ -z "${task:-}" ] && continue
+  if [ "$(left)" -le 120 ]; then
+    echo; echo "[BUDGET] time up after $done_n unit(s) — stopping cleanly"
+    break
+  fi
+  echo "[$(human $(left)) left] task $task  $recipe  rows $rowshard"
+  RECIPES="$recipe" ROW_SHARD="$rowshard" \
+    timeout "$(left)" bash mdg/hpc/run_one.sh attack "$task" \
+    >> "$MDG_LOG_DIR/colab-run.log" 2>&1
+  done_n=$(( done_n + 1 ))
+done < <(grep -v '^#' "$PENDING" | head -n 100000)
+rm -f "$PENDING"
+
+echo
+echo "  completed this session : $done_n unit(s)"
+echo "  results on Drive       : $MDG_DRIVE/results"
+echo "  re-run this cell to continue"

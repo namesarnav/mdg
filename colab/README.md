@@ -1,5 +1,37 @@
 # colab
 
+## Every data point, one notebook per model: `colab/notebooks/`
+
+**33 notebooks** (3 architectures × 11 datasets), one per trained model on the
+Hub. Each attacks **every data point** of its dataset (train + validation +
+test, exact duplicates dropped) with all 18 recipes, giving 18 × 11 × 3 = 594
+result files. Open links: [`notebooks/README.md`](notebooks/README.md).
+
+```
+MyDrive/mdg/results/namesarnav_<dataset>__all/<model>/<recipe>.jsonl          one line per example
+MyDrive/mdg/results/namesarnav_<dataset>__all/<model>/<recipe>_summary.json   ASR, clean/attacked F1
+MyDrive/mdg/data/namesarnav_<dataset>__all.jsonl                              the attacked rows, built once
+```
+
+They run `colab/attack_all.py`, which differs from `run.sh` in ways that matter
+on Colab:
+
+- **Resumes per example.** `attack.py` writes nothing until a recipe finishes the
+  whole shard (`Attacker.attack_dataset()` returns only at the end). Here every
+  example is appended as it finishes and reaches Drive within 2 minutes.
+- **Local disk stays near empty.** Only the part in progress lives locally.
+  Finished parts go to Drive and are deleted, and models and assets for one
+  model only (~5GB) are downloaded instead of all 33.
+- **T5 runs in fp32.** `attack.py` loads everything in fp16 on CUDA, and T5
+  overflows in fp16.
+- **`WORKER = 'i/n'`** splits one notebook across n sessions, for corr2cause.
+
+Regenerate after changing anything: `python3 colab/make_notebooks.py`.
+
+---
+
+## The older grid runner (`run.sh`, test split only)
+
 Fallback for when the VMs don't work out. Attacks the **complete test split**
 of every dataset — no example cap, no query budget.
 
